@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, ImagePlus, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -13,6 +13,8 @@ import {
   listColourMaster,
   createColourMaster,
 } from '@/api/styles';
+import { uploadPhoto } from '@/api/storage';
+import { useSignedUrls } from '@/hooks/useSignedUrls';
 import type { Colour, Fabric, FabricUnitOfMeasure } from '@/api/types';
 import { cn } from '@/lib/utils';
 
@@ -99,6 +101,7 @@ export default function FabricEditorForm({
   const [form, setForm] = useState(() => ({
     name: editing?.name ?? initialName ?? '',
     pricePerUnit: editing?.pricePerUnit ?? '',
+    imagePath: editing?.imagePath ?? '',
     notes: editing?.notes ?? '',
     count: editing?.count ?? '',
     construction: editing?.construction ?? '',
@@ -109,6 +112,33 @@ export default function FabricEditorForm({
       | ''
       | FabricUnitOfMeasure,
   }));
+
+  // ── Representative image (parent fabric) ──────────────────────────
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const imageUrls = useSignedUrls([form.imagePath || null]);
+  const imagePreview = form.imagePath ? imageUrls[form.imagePath] : undefined;
+
+  const onPickImage = async (file: File | undefined) => {
+    if (!file) return;
+    setUploadingImage(true);
+    try {
+      // entityId is 'new' before the fabric exists — the object path stays
+      // unique via its uuid and is linked through `imagePath` on save.
+      const { objectPath } = await uploadPhoto('fabric', editing?.id ?? 'new', file);
+      setForm((f) => ({ ...f, imagePath: objectPath }));
+    } catch {
+      toast.show(
+        t('admin.fabricLibrary.form.imageError', {
+          defaultValue: 'Could not upload the image.',
+        }),
+        'error',
+      );
+    } finally {
+      setUploadingImage(false);
+      if (imageInputRef.current) imageInputRef.current.value = '';
+    }
+  };
 
   const [comp, setComp] = useState<CompRow[]>(
     () =>
@@ -274,6 +304,7 @@ export default function FabricEditorForm({
       const payload = {
         name: form.name.trim(),
         pricePerUnit: form.pricePerUnit || null,
+        imagePath: form.imagePath || null,
         notes: (trimNotes ? form.notes.trim() : form.notes) || null,
         count: form.count.trim() || null,
         construction: form.construction.trim() || null,
@@ -321,6 +352,61 @@ export default function FabricEditorForm({
           onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
           autoFocus
         />
+      </div>
+
+      {/* ── Representative image ─────────────────────────────────── */}
+      <div>
+        <Label>
+          {t('admin.fabricLibrary.form.image', { defaultValue: 'Image' })}
+        </Label>
+        <div className="flex items-center gap-3">
+          <div className="h-16 w-16 shrink-0 overflow-hidden rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-muted)] flex items-center justify-center">
+            {imagePreview ? (
+              <img
+                src={imagePreview}
+                alt={form.name}
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <ImagePlus size={20} className="text-[var(--color-muted-foreground)]" />
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => void onPickImage(e.target.files?.[0])}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={uploadingImage}
+              onClick={() => imageInputRef.current?.click()}
+            >
+              {uploadingImage
+                ? t('common.saving', { defaultValue: 'Saving…' })
+                : form.imagePath
+                  ? t('admin.fabricLibrary.form.imageReplace', { defaultValue: 'Replace' })
+                  : t('admin.fabricLibrary.form.imageUpload', { defaultValue: 'Upload' })}
+            </Button>
+            {form.imagePath && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label={t('admin.fabricLibrary.form.imageRemove', {
+                  defaultValue: 'Remove image',
+                })}
+                onClick={() => setForm((f) => ({ ...f, imagePath: '' }))}
+              >
+                <X size={16} />
+              </Button>
+            )}
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

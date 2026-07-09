@@ -5,12 +5,14 @@ import { ArrowLeft, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/toast';
 import FabricPicker from '@/components/styles/intake/FabricPicker';
 import { listFabrics } from '@/api/styles';
 import { createFabricChallan } from '@/api/fabricChallans';
-import type { Fabric, FabricUnitOfMeasure } from '@/api/types';
+import { listVendors } from '@/api/vendors';
+import type { Fabric, FabricUnitOfMeasure, Vendor } from '@/api/types';
 
 const UOM_SHORT: Record<FabricUnitOfMeasure, string> = {
   meter: 'm',
@@ -24,6 +26,8 @@ interface LineRow {
   fabricId: number | null;
   fabricColourId: number | null;
   quantity: string;
+  /** Rate per unit (₹ / UoM). Optional — blank means "not captured". */
+  price: string;
 }
 
 const emptyLine = (key: number): LineRow => ({
@@ -31,6 +35,7 @@ const emptyLine = (key: number): LineRow => ({
   fabricId: null,
   fabricColourId: null,
   quantity: '',
+  price: '',
 });
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
@@ -47,9 +52,11 @@ export default function ReceiveFabricChallan() {
   const toast = useToast();
 
   const [fabrics, setFabrics] = useState<Fabric[]>([]);
+  const [vendors, setVendors] = useState<Vendor[]>([]);
   const [header, setHeader] = useState({
     challanNo: '',
     challanDate: todayIso(),
+    vendorId: '' as number | '',
     supplier: '',
     note: '',
   });
@@ -61,6 +68,9 @@ export default function ReceiveFabricChallan() {
     let alive = true;
     void listFabrics().then((rows) => {
       if (alive) setFabrics(rows);
+    });
+    void listVendors().then((rows) => {
+      if (alive) setVendors(rows.filter((v) => v.isActive));
     });
     return () => {
       alive = false;
@@ -82,10 +92,18 @@ export default function ReceiveFabricChallan() {
     setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
   };
 
-  // A line is complete when it names a fabric and a positive quantity. The
-  // FabricPicker guarantees the colour is set whenever the fabric stocks one.
+  // The colour child is the stocked unit, so every line must name one —
+  // mirror the server rule client-side so the operator sees the gap inline.
+  const colourMissing = (l: LineRow): boolean =>
+    l.fabricId != null && l.fabricColourId == null;
+
+  // A line is complete when it names a fabric colour and a positive quantity.
+  // Price is optional; if given it must be non-negative.
   const lineReady = (l: LineRow) =>
-    l.fabricId != null && Number(l.quantity) > 0;
+    l.fabricId != null &&
+    l.fabricColourId != null &&
+    Number(l.quantity) > 0 &&
+    (l.price === '' || Number(l.price) >= 0);
 
   const headerReady =
     header.challanNo.trim() !== '' &&
@@ -104,14 +122,16 @@ export default function ReceiveFabricChallan() {
     setSaving(true);
     try {
       await createFabricChallan({
+        direction: 'in',
         challanNo: header.challanNo.trim(),
         challanDate: header.challanDate,
+        vendorId: header.vendorId === '' ? null : header.vendorId,
         supplier: header.supplier.trim(),
         note: header.note.trim() || null,
         lines: lines.map((l) => ({
-          fabricId: l.fabricId as number,
-          fabricColourId: l.fabricColourId,
+          fabricColourId: l.fabricColourId as number,
           quantity: Number(l.quantity),
+          pricePerUnit: l.price === '' ? null : Number(l.price),
         })),
       });
       toast.show(
@@ -186,6 +206,35 @@ export default function ReceiveFabricChallan() {
           />
         </div>
         <div className="space-y-1.5">
+          <Label htmlFor="vendor">
+            {t('admin.fabricChallan.vendor', { defaultValue: 'Vendor' })}
+          </Label>
+          <Select
+            id="vendor"
+            value={header.vendorId === '' ? '' : String(header.vendorId)}
+            onChange={(e) => {
+              const id = e.target.value ? Number(e.target.value) : '';
+              const v =
+                id === '' ? undefined : vendors.find((x) => Number(x.id) === id);
+              // Convenience: default the free-text supplier to the vendor's name.
+              setHeader((h) => ({
+                ...h,
+                vendorId: id,
+                supplier: v && !h.supplier.trim() ? v.name : h.supplier,
+              }));
+            }}
+          >
+            <option value="">
+              {t('admin.fabricChallan.vendorNone', { defaultValue: 'Choose a vendor…' })}
+            </option>
+            {vendors.map((v) => (
+              <option key={v.id} value={String(v.id)}>
+                {v.name}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div className="space-y-1.5">
           <Label htmlFor="supplier">
             {t('admin.fabricChallan.supplier', { defaultValue: 'Supplier' })}
           </Label>
@@ -240,8 +289,15 @@ export default function ReceiveFabricChallan() {
                   setFabrics((fs) => [...fs, created])
                 }
               />
+              {colourMissing(line) && (
+                <p className="text-xs text-[var(--color-destructive)]">
+                  {t('admin.fabricChallan.colourRequired', {
+                    defaultValue: 'This fabric stocks colours — pick one.',
+                  })}
+                </p>
+              )}
             </div>
-            <div className="w-full sm:w-40 space-y-1.5">
+            <div className="w-full sm:w-32 space-y-1.5">
               <Label>
                 {t('admin.fabricChallan.quantity', { defaultValue: 'Quantity' })}
                 {uomFor(line.fabricId) ? ` (${uomFor(line.fabricId)})` : ''}
@@ -256,6 +312,23 @@ export default function ReceiveFabricChallan() {
                   patchLine(line.key, { quantity: e.target.value })
                 }
                 placeholder="22.5"
+              />
+            </div>
+            <div className="w-full sm:w-32 space-y-1.5">
+              <Label>
+                {t('admin.fabricChallan.price', { defaultValue: 'Price' })}
+                {uomFor(line.fabricId) ? ` (₹/${uomFor(line.fabricId)})` : ' (₹)'}
+              </Label>
+              <Input
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="0.01"
+                value={line.price}
+                onChange={(e) => patchLine(line.key, { price: e.target.value })}
+                placeholder={t('admin.fabricChallan.pricePh', {
+                  defaultValue: 'optional',
+                })}
               />
             </div>
             <Button

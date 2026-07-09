@@ -16,15 +16,9 @@ import { Dialog } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/toast';
 import FabricEditorForm from '@/components/fabrics/FabricEditorForm';
-import {
-  listFabrics,
-  addFabricStock,
-} from '@/api/styles';
-import type {
-  Fabric,
-  FabricUnitOfMeasure,
-  FabricStockEntryType,
-} from '@/api/types';
+import { listFabrics } from '@/api/styles';
+import { createFabricChallan } from '@/api/fabricChallans';
+import type { Fabric, FabricUnitOfMeasure } from '@/api/types';
 import { cn } from '@/lib/utils';
 import {
   ColumnFilter,
@@ -70,21 +64,19 @@ export default function FabricLibrary() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Fabric | null>(null);
 
-  // ── Add-stock dialog ────────────────────────────────────────────
+  // ── Take-stock dialog (records an OUT challan — the sole ledger writer) ──
   const [stockFabric, setStockFabric] = useState<Fabric | null>(null);
   const [stockForm, setStockForm] = useState<{
     quantity: string;
-    entryType: FabricStockEntryType;
     fabricColourId: number | '';
     note: string;
-  }>({ quantity: '', entryType: 'receipt', fabricColourId: '', note: '' });
+  }>({ quantity: '', fabricColourId: '', note: '' });
   const [stockSaving, setStockSaving] = useState(false);
 
   const openStock = (f: Fabric) => {
     setStockFabric(f);
     setStockForm({
       quantity: '',
-      entryType: 'receipt',
       // Preselect when the fabric has exactly one colour — one fewer click.
       fabricColourId: f.colours?.length === 1 ? f.colours[0].id : '',
       note: '',
@@ -95,8 +87,8 @@ export default function FabricLibrary() {
     if (!stockFabric) return;
     const qty = Number(stockForm.quantity);
     if (!(qty > 0)) return;
-    // A fabric that stocks colours needs the entry attributed to one.
-    if ((stockFabric.colours?.length ?? 0) > 0 && stockForm.fabricColourId === '') {
+    // The colour child is the stocked unit — always required.
+    if (stockForm.fabricColourId === '') {
       toast.show(
         t('admin.fabricLibrary.stock.colourRequired', {
           defaultValue: 'Pick the colour this stock is for.',
@@ -106,13 +98,18 @@ export default function FabricLibrary() {
       return;
     }
     setStockSaving(true);
+    const today = new Date().toISOString().slice(0, 10);
     try {
-      await addFabricStock(stockFabric.id, {
-        quantity: qty,
-        entryType: stockForm.entryType,
-        fabricColourId:
-          stockForm.fabricColourId === '' ? null : stockForm.fabricColourId,
+      // Reducing stock is an OUT challan (cap-checked server-side).
+      await createFabricChallan({
+        direction: 'out',
+        challanNo: `TAKE-${today}`,
+        challanDate: today,
+        supplier: '',
         note: stockForm.note.trim() || null,
+        lines: [
+          { fabricColourId: stockForm.fabricColourId, quantity: qty },
+        ],
       });
       toast.show(t('admin.fabricLibrary.stockSavedToast'));
       setStockFabric(null);
@@ -465,15 +462,24 @@ export default function FabricLibrary() {
                           {f.colours.slice(0, 5).map((c) => (
                             <span
                               key={c.id}
-                              title={
+                              title={[
+                                c.code ? `${c.code} · ` : '',
+                                c.name,
                                 c.availableQuantity != null
-                                  ? `${c.name} — ${c.availableQuantity}${
+                                  ? ` — ${c.availableQuantity}${
                                       f.unitOfMeasure
                                         ? ` ${UOM_SHORT[f.unitOfMeasure]}`
                                         : ''
                                     }`
-                                  : c.name
-                              }
+                                  : '',
+                                c.pricePerUnit != null
+                                  ? ` · ₹${c.pricePerUnit}${
+                                      f.unitOfMeasure
+                                        ? `/${UOM_SHORT[f.unitOfMeasure]}`
+                                        : ''
+                                    }`
+                                  : '',
+                              ].join('')}
                               className="inline-flex items-center gap-1 rounded-full border border-[var(--color-border)] pl-1 pr-1.5 py-0.5 text-[11px] text-[var(--color-foreground)]"
                             >
                               <span
@@ -602,47 +608,23 @@ export default function FabricLibrary() {
           <p className="text-[11px] text-[var(--color-muted-foreground)]">
             {t('admin.fabricLibrary.stockHelp')}
           </p>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>{t('admin.fabricLibrary.stock.entryType')}</Label>
-              <Select
-                value={stockForm.entryType}
-                onChange={(e) =>
-                  setStockForm((s) => ({
-                    ...s,
-                    entryType: e.target.value as FabricStockEntryType,
-                  }))
-                }
-              >
-                <option value="receipt">
-                  {t('admin.fabricLibrary.stock.receipt')}
-                </option>
-                <option value="adjustment">
-                  {t('admin.fabricLibrary.stock.adjustment')}
-                </option>
-                <option value="consumption">
-                  {t('admin.fabricLibrary.stock.consumption')}
-                </option>
-              </Select>
-            </div>
-            <div>
-              <Label>
-                {t('admin.fabricLibrary.stock.quantity')}
-                {stockFabric?.unitOfMeasure
-                  ? ` (${UOM_SHORT[stockFabric.unitOfMeasure]})`
-                  : ''}
-              </Label>
-              <Input
-                type="number"
-                min="0"
-                step="0.01"
-                value={stockForm.quantity}
-                onChange={(e) =>
-                  setStockForm((s) => ({ ...s, quantity: e.target.value }))
-                }
-                autoFocus
-              />
-            </div>
+          <div>
+            <Label>
+              {t('admin.fabricLibrary.stock.quantity')}
+              {stockFabric?.unitOfMeasure
+                ? ` (${UOM_SHORT[stockFabric.unitOfMeasure]})`
+                : ''}
+            </Label>
+            <Input
+              type="number"
+              min="0"
+              step="0.01"
+              value={stockForm.quantity}
+              onChange={(e) =>
+                setStockForm((s) => ({ ...s, quantity: e.target.value }))
+              }
+              autoFocus
+            />
           </div>
           {(stockFabric?.colours?.length ?? 0) > 0 && (
             <div>
