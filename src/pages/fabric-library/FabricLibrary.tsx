@@ -1,11 +1,12 @@
 import {
+  Fragment,
   useCallback,
   useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from 'react';
-import { Plus, ChevronUp, ChevronDown, Truck } from 'lucide-react';
+import { Plus, ChevronUp, ChevronDown, ChevronRight, Truck } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
@@ -18,6 +19,7 @@ import { useToast } from '@/components/ui/toast';
 import FabricEditorForm from '@/components/fabrics/FabricEditorForm';
 import { listFabrics } from '@/api/styles';
 import { createFabricChallan } from '@/api/fabricChallans';
+import { useSignedUrls } from '@/hooks/useSignedUrls';
 import type { Fabric, FabricUnitOfMeasure } from '@/api/types';
 import { cn } from '@/lib/utils';
 import {
@@ -36,6 +38,22 @@ const UOM_SHORT: Record<FabricUnitOfMeasure, string> = {
   kg: 'kg',
   oz: 'oz',
 };
+
+/**
+ * Price shown on the parent row — a rollup of the colour children's prices
+ * (price now lives per child). Single price → `₹X`, a spread → `₹min–max`,
+ * none captured → `—`.
+ */
+function childPriceLabel(f: Fabric): string {
+  const prices = (f.colours ?? [])
+    .map((c) => c.pricePerUnit)
+    .filter((p): p is number => p != null);
+  if (prices.length === 0) return '—';
+  const uom = f.unitOfMeasure ? ` / ${UOM_SHORT[f.unitOfMeasure]}` : '';
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+  return min === max ? `₹${min}${uom}` : `₹${min}–${max}${uom}`;
+}
 
 /** Render a fabric's composition as "98% Cotton · 2% Elastane". */
 function contentSummary(f: Fabric): string {
@@ -61,6 +79,27 @@ export default function FabricLibrary() {
   const [filters, setFilters] = useState<FabricFilters>(EMPTY_FILTERS);
   const [loading, setLoading] = useState(true);
 
+  // Which parent fabrics are expanded to show their colour children.
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const toggleExpand = (id: number) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+
+  // Batch-resolve every image path (parent + colour swatches) in one call so
+  // the thumbnails don't fire an N+1 of signed-URL requests.
+  const imagePaths = useMemo(
+    () =>
+      fabrics.flatMap((f) => [
+        f.imagePath ?? null,
+        ...(f.colours ?? []).map((c) => c.imagePath ?? null),
+      ]),
+    [fabrics],
+  );
+  const imageUrls = useSignedUrls(imagePaths);
+
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Fabric | null>(null);
 
@@ -73,12 +112,13 @@ export default function FabricLibrary() {
   }>({ quantity: '', fabricColourId: '', note: '' });
   const [stockSaving, setStockSaving] = useState(false);
 
-  const openStock = (f: Fabric) => {
+  const openStock = (f: Fabric, fabricColourId?: number) => {
     setStockFabric(f);
     setStockForm({
       quantity: '',
-      // Preselect when the fabric has exactly one colour — one fewer click.
-      fabricColourId: f.colours?.length === 1 ? f.colours[0].id : '',
+      // Preselect the given colour child, else the only colour if there's one.
+      fabricColourId:
+        fabricColourId ?? (f.colours?.length === 1 ? f.colours[0].id : ''),
       note: '',
     });
   };
@@ -430,28 +470,63 @@ export default function FabricLibrary() {
               )}
               {!loading &&
                 filtered.map((f) => (
+                  <Fragment key={f.id}>
                   <tr
-                    key={f.id}
                     className="border-t border-[var(--color-border)] hover:bg-[var(--color-muted)] cursor-pointer"
                     onClick={() => openEdit(f)}
                   >
                     <td className="px-3 py-2 font-medium">
-                      <div className="flex items-center">
-                        {f.name}
-                        {f.isBlended && (
-                          <Badge
-                            variant="outline"
-                            className="ml-1.5 text-[9px] align-middle"
-                          >
-                            {t('admin.fabricLibrary.blended')}
-                          </Badge>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          aria-label={t('admin.fabricLibrary.toggleColours', {
+                            defaultValue: 'Show colours',
+                          })}
+                          className="shrink-0 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] disabled:opacity-30"
+                          disabled={!f.colours || f.colours.length === 0}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleExpand(f.id);
+                          }}
+                        >
+                          {expanded.has(f.id) ? (
+                            <ChevronDown size={15} />
+                          ) : (
+                            <ChevronRight size={15} />
+                          )}
+                        </button>
+                        {f.imagePath && imageUrls[f.imagePath] && (
+                          <img
+                            src={imageUrls[f.imagePath]}
+                            alt={f.name}
+                            className="h-7 w-7 shrink-0 rounded-[var(--radius-sm)] border border-[var(--color-border)] object-cover"
+                            loading="lazy"
+                          />
                         )}
-                      </div>
-                      {f.typeLabel && (
-                        <div className="text-[11px] font-normal text-[var(--color-muted-foreground)]">
-                          {f.typeLabel}
+                        <div>
+                          <div className="flex items-center">
+                            {f.name}
+                            {f.code && (
+                              <span className="ml-1.5 text-[10px] font-normal text-[var(--color-muted-foreground)] tabular-nums">
+                                {f.code}
+                              </span>
+                            )}
+                            {f.isBlended && (
+                              <Badge
+                                variant="outline"
+                                className="ml-1.5 text-[9px] align-middle"
+                              >
+                                {t('admin.fabricLibrary.blended')}
+                              </Badge>
+                            )}
+                          </div>
+                          {f.typeLabel && (
+                            <div className="text-[11px] font-normal text-[var(--color-muted-foreground)]">
+                              {f.typeLabel}
+                            </div>
+                          )}
                         </div>
-                      )}
+                      </div>
                     </td>
                     <td className="px-3 py-2 hidden lg:table-cell text-xs text-[var(--color-muted-foreground)]">
                       {contentSummary(f)}
@@ -512,13 +587,7 @@ export default function FabricLibrary() {
                         : '—'}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">
-                      {f.pricePerUnit
-                        ? `₹${Number(f.pricePerUnit)}${
-                            f.unitOfMeasure
-                              ? ` / ${UOM_SHORT[f.unitOfMeasure]}`
-                              : ''
-                          }`
-                        : '—'}
+                      {childPriceLabel(f)}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">
                       {f.availableQuantity != null &&
@@ -565,6 +634,72 @@ export default function FabricLibrary() {
                       </div>
                     </td>
                   </tr>
+                  {expanded.has(f.id) &&
+                    (f.colours ?? []).map((c) => {
+                      const uom = f.unitOfMeasure
+                        ? UOM_SHORT[f.unitOfMeasure]
+                        : '';
+                      const swatch = c.imagePath
+                        ? imageUrls[c.imagePath]
+                        : undefined;
+                      return (
+                        <tr
+                          key={`${f.id}-${c.id}`}
+                          className="border-t border-[var(--color-border)]/40 bg-[var(--color-surface-2)]/40"
+                        >
+                          <td colSpan={9} className="px-3 py-1.5">
+                            <div className="flex items-center gap-3 pl-9 text-xs">
+                              {swatch ? (
+                                <img
+                                  src={swatch}
+                                  alt={c.name}
+                                  className="h-6 w-6 shrink-0 rounded-[var(--radius-sm)] border border-[var(--color-border)] object-cover"
+                                  loading="lazy"
+                                />
+                              ) : (
+                                <span
+                                  className="h-4 w-4 shrink-0 rounded-full border border-black/10"
+                                  style={{
+                                    backgroundColor:
+                                      c.hex || c.name.toLowerCase(),
+                                  }}
+                                />
+                              )}
+                              <span className="font-medium text-[var(--color-foreground)]">
+                                {c.name}
+                              </span>
+                              {c.code && (
+                                <span className="text-[var(--color-muted-foreground)] tabular-nums">
+                                  {c.code}
+                                </span>
+                              )}
+                              <span className="ml-auto w-28 text-right tabular-nums">
+                                {c.pricePerUnit != null
+                                  ? `₹${c.pricePerUnit}${uom ? ` / ${uom}` : ''}`
+                                  : '—'}
+                              </span>
+                              <span className="w-24 text-right tabular-nums">
+                                {c.availableQuantity != null &&
+                                c.availableQuantity > 0
+                                  ? `${c.availableQuantity}${uom ? ` ${uom}` : ''}`
+                                  : t('admin.fabricLibrary.noStock')}
+                              </span>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openStock(f, c.id);
+                                }}
+                              >
+                                {t('admin.fabricLibrary.addStock')}
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </Fragment>
                 ))}
             </tbody>
           </table>
