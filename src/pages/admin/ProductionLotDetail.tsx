@@ -10,10 +10,17 @@ import { getLot, type LotDetail, type LotTimelineEntry } from '@/api/production'
 import { statusLabel } from '@/lib/production';
 
 /** Stage pill colours, reusing the badge variants the floor screens already use. */
-const STAGE_VARIANT: Record<LotTimelineEntry['stage'], 'secondary' | 'stitch' | 'finish'> = {
+const STAGE_VARIANT: Record<
+  LotTimelineEntry['stage'],
+  'secondary' | 'stitch' | 'finish' | 'rework' | 'destructive'
+> = {
   cutting: 'secondary',
   stitching: 'stitch',
+  // Reuses the existing `rework` tone — alteration IS pieces going back, and the
+  // floor screens already read that colour that way.
+  alteration: 'rework',
   finishing: 'finish',
+  scrapped: 'destructive',
 };
 
 function fmtDate(iso: string | null): string {
@@ -109,12 +116,23 @@ export default function ProductionLotDetail() {
     (a, s) => ({
       planned: a.planned + s.qtyPlanned,
       cut: a.cut + s.qtyCut,
+      altered: a.altered + s.qtyAltered,
+      scrapped: a.scrapped + s.qtyScrapped,
       stitched: a.stitched + s.qtyStitched,
       finished: a.finished + s.qtyFinished,
       produced: a.produced + (s.qtyProduced ?? 0),
       dispatched: a.dispatched + s.qtyDispatched,
     }),
-    { planned: 0, cut: 0, stitched: 0, finished: 0, produced: 0, dispatched: 0 },
+    {
+      planned: 0,
+      cut: 0,
+      altered: 0,
+      scrapped: 0,
+      stitched: 0,
+      finished: 0,
+      produced: 0,
+      dispatched: 0,
+    },
   );
 
   const stageCell = (stage: LotTimelineEntry['stage'], qty: number) =>
@@ -158,11 +176,18 @@ export default function ProductionLotDetail() {
                   <th className="py-2 pr-3 text-right font-semibold">
                     {t('admin.production.lot.cut', { defaultValue: 'Cut' })}
                   </th>
+
                   <th className="py-2 pr-3 text-right font-semibold">
                     {t('admin.production.lot.stitched', { defaultValue: 'Stitched' })}
                   </th>
                   <th className="py-2 pr-3 text-right font-semibold">
+                    {t('admin.production.lot.altered', { defaultValue: 'Altered' })}
+                  </th>
+                  <th className="py-2 pr-3 text-right font-semibold">
                     {t('admin.production.lot.finished', { defaultValue: 'Finished' })}
+                  </th>
+                  <th className="py-2 pr-3 text-right font-semibold">
+                    {t('admin.production.lot.scrapped', { defaultValue: 'Scrapped' })}
                   </th>
                   <th className="py-2 pr-3 text-right font-semibold">
                     {t('admin.production.lot.made', { defaultValue: 'Made' })}
@@ -178,11 +203,18 @@ export default function ProductionLotDetail() {
                     <td className="py-2 pr-3 font-semibold">{s.size}</td>
                     <td className="py-2 pr-3 text-right">{s.qtyPlanned}</td>
                     <td className="py-2 pr-3 text-right">{stageCell('cutting', s.qtyCut)}</td>
+
                     <td className="py-2 pr-3 text-right">
                       {stageCell('stitching', s.qtyStitched)}
                     </td>
                     <td className="py-2 pr-3 text-right">
+                      {stageCell('alteration', s.qtyAltered)}
+                    </td>
+                    <td className="py-2 pr-3 text-right">
                       {stageCell('finishing', s.qtyFinished)}
+                    </td>
+                    <td className="py-2 pr-3 text-right">
+                      {stageCell('scrapped', s.qtyScrapped)}
                     </td>
                     <td className="py-2 pr-3 text-right font-semibold">{s.qtyProduced ?? '—'}</td>
                     <td className="py-2 text-right text-[var(--color-muted-foreground)]">
@@ -202,7 +234,13 @@ export default function ProductionLotDetail() {
                     {stageCell('stitching', totals.stitched)}
                   </td>
                   <td className="py-2 pr-3 text-right">
+                    {stageCell('alteration', totals.altered)}
+                  </td>
+                  <td className="py-2 pr-3 text-right">
                     {stageCell('finishing', totals.finished)}
+                  </td>
+                  <td className="py-2 pr-3 text-right">
+                    {stageCell('scrapped', totals.scrapped)}
                   </td>
                   <td className="py-2 pr-3 text-right">{lot.qtyProduced ?? '—'}</td>
                   <td className="py-2 text-right text-[var(--color-muted-foreground)]">

@@ -6,6 +6,18 @@ type T = ReturnType<typeof useTranslation>['t'];
 
 /** The three floor stages read as a state the lot is IN; the off-floor statuses
  *  (planning / completed / dispatched / cancelled) keep their plain name. */
+/** Pieces still out for alteration: sent back, not yet finished or written off.
+ *  Derived, never stored — a returning piece is recorded into `finishing` like
+ *  any other instalment and this falls to zero on its own. */
+export function outstandingAlteration(b: {
+  sizes: { qtyStitched: number; qtyFinished: number; qtyScrapped: number }[];
+}): number {
+  return b.sizes.reduce(
+    (n, s) => n + Math.max(0, s.qtyStitched - s.qtyFinished - s.qtyScrapped),
+    0,
+  );
+}
+
 const FLOOR_STAGE_LABEL: Partial<Record<BatchStatus, string>> = {
   cutting: 'In cutting',
   stitching: 'In stitching',
