@@ -80,6 +80,10 @@ export default function StageQtyDialog({
 }) {
   const { t } = useTranslation();
   const [qty, setQty] = useState<Record<string, number>>({});
+  // A lot SPLITS on the way into finishing: of 100 stitched, 90 reach finishing
+  // and 10 go back for alteration. Only this move offers it — alteration happens
+  // after stitching, and nothing before that stage can be "sent back".
+  const [alter, setAlter] = useState<Record<string, number>>({});
   const [tailorId, setTailorId] = useState<number | ''>('');
   // Asked once, on the way to the floor: cutting into fabric you don't have is
   // the expensive mistake. Recorded on the audit entry for the send.
@@ -97,6 +101,7 @@ export default function StageQtyDialog({
     const seeded: Record<string, number> = {};
     for (const s of batch.sizes) seeded[s.sku] = outstanding(s, prev.key, cur);
     setQty(seeded);
+    setAlter({});
     setTailorId(batch.tailorId ?? '');
     setFabricOk(false);
   }, [open, batch, prev.key, cur]);
@@ -113,8 +118,25 @@ export default function StageQtyDialog({
   const maxFor = (s: BatchSizeLine): number =>
     capped ? outstanding(s, prev.key, cur) : Number.POSITIVE_INFINITY;
 
-  const set = (sku: string, raw: string, max: number) =>
-    setQty((p) => ({
+  const set = (sku: string, raw: string, max: number) => {
+    const next = Math.min(max, Math.max(0, Number.parseInt(raw, 10) || 0));
+    setQty((p) => ({ ...p, [sku]: next }));
+    // Clamping only the field being edited let the PAIR drift over the cap:
+    // enter 10 to alteration, then raise finishing, and the stale 10 rides along
+    // into a payload the server rejects. Reconcile the other side here.
+    if (splits) {
+      setAlter((p) => {
+        const room = Math.max(0, max - next);
+        return (p[sku] ?? 0) > room ? { ...p, [sku]: room } : p;
+      });
+    }
+  };
+
+  const splits = stage === 'finishing';
+  const alterTotal = Object.values(alter).reduce((a, b) => a + b, 0);
+  // Finishing + alteration cannot exceed what stitching passed on.
+  const setAlterFor = (sku: string, raw: string, max: number) =>
+    setAlter((p) => ({
       ...p,
       [sku]: Math.min(max, Math.max(0, Number.parseInt(raw, 10) || 0)),
     }));
@@ -124,7 +146,11 @@ export default function StageQtyDialog({
   // makes a zero-quantity submit legitimate (the work is recorded; this move is
   // only putting the lot back on the right stage).
   const anyRecorded = batch.sizes.some((s) => (s[cur] ?? 0) > 0);
-  const canSubmit = (total > 0 || anyRecorded) && (!askTailor || (tailorId !== '' && fabricOk));
+  // alterTotal counts: a run where every piece needs rework submits qty 0 to
+  // finishing and the whole quantity to alteration, which is a real move.
+  const canSubmit =
+    (total > 0 || alterTotal > 0 || anyRecorded) &&
+    (!askTailor || (tailorId !== '' && fabricOk));
 
   return (
     <Dialog
@@ -155,7 +181,13 @@ export default function StageQtyDialog({
             disabled={busy || !canSubmit}
             onClick={() =>
               onConfirm(
-                batch.sizes.map((s) => ({ sku: s.sku, qty: qty[s.sku] ?? 0 })),
+                batch.sizes.map((s) => ({
+                  sku: s.sku,
+                  qty: qty[s.sku] ?? 0,
+                  ...(splits && (alter[s.sku] ?? 0) > 0
+                    ? { qtyToAlteration: alter[s.sku] }
+                    : {}),
+                })),
                 askTailor
                   ? {
                       tailorId: tailorId === '' ? undefined : tailorId,
@@ -167,11 +199,18 @@ export default function StageQtyDialog({
           >
             <Factory size={14} />
             <span className="ml-1">
-              {t('admin.production.stage.confirm', {
-                defaultValue: '{{verb}} · {{n}}',
-                verb,
-                n: total,
-              })}
+              {alterTotal > 0
+                ? t('admin.production.stage.confirmSplit', {
+                    defaultValue: '{{verb}} · {{n}} · {{a}} to alteration',
+                    verb,
+                    n: total,
+                    a: alterTotal,
+                  })
+                : t('admin.production.stage.confirm', {
+                    defaultValue: '{{verb}} · {{n}}',
+                    verb,
+                    n: total,
+                  })}
             </span>
           </Button>
         </>
@@ -223,6 +262,13 @@ export default function StageQtyDialog({
                   ? t('admin.production.stage.more', { defaultValue: '{{verb}} more', verb })
                   : verb}
               </th>
+              {splits && (
+                <th className="py-2 pr-3 text-left font-semibold text-amber-700">
+                  {t('admin.production.stage.toAlteration', {
+                    defaultValue: 'To alteration',
+                  })}
+                </th>
+              )}
               <th className="py-2 text-right font-semibold">
                 {t('admin.production.stage.delta', { defaultValue: 'Diff' })}
               </th>
@@ -262,6 +308,27 @@ export default function StageQtyDialog({
                       })}
                     />
                   </td>
+                  {splits && (
+                    <td className="py-2 pr-3">
+                      <Input
+                        type="number"
+                        min={0}
+                        // Finishing + alteration can't exceed what stitching passed on.
+                        max={Math.max(0, maxFor(s) - (qty[s.sku] ?? 0))}
+                        inputMode="numeric"
+                        className="h-9 w-24 text-center text-sm font-semibold"
+                        value={alter[s.sku] === 0 ? '' : String(alter[s.sku] ?? '')}
+                        placeholder="0"
+                        onChange={(e) =>
+                          setAlterFor(s.sku, e.target.value, Math.max(0, maxFor(s) - (qty[s.sku] ?? 0)))
+                        }
+                        aria-label={t('admin.production.stage.alterFor', {
+                          defaultValue: 'To alteration, size {{size}}',
+                          size: s.size,
+                        })}
+                      />
+                    </td>
+                  )}
                   <td className="py-2 text-right">
                     {delta === 0 ? (
                       <span className="text-[var(--color-muted-foreground)]">—</span>

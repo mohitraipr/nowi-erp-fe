@@ -49,7 +49,12 @@ export interface BatchSizeLine {
    *  shipped have no history to show. */
   qtyCut: number;
   qtyStitched: number;
+  /** Pieces CURRENTLY out for alteration — a signed balance the server keeps:
+   *  +n when pieces are sent back, -n when they return or are scrapped. */
+  qtyAltered: number;
   qtyFinished: number;
+  /** Written off at alteration; these never reach finishing. */
+  qtyScrapped: number;
   /** null = no forecast existed (style-origin), NOT "forecast said zero". */
   suggestedQty: number | null;
   qtyProduced: number | null;
@@ -302,7 +307,7 @@ export interface LotTimelineEntry {
   id: number;
   sku: string;
   size: string;
-  stage: 'cutting' | 'stitching' | 'finishing';
+  stage: 'cutting' | 'stitching' | 'alteration' | 'finishing' | 'scrapped';
   qty: number;
   note: string | null;
   recordedAt: string;
@@ -331,5 +336,26 @@ export function unparkStyle(styleKey: string): Promise<void> {
 export function cancelBatch(id: number, reason: string): Promise<ProductionBatch> {
   return apiClient
     .post<ProductionBatch>(`/api/production/batches/${id}/actions/cancel`, { reason })
+    .then((r) => r.data);
+}
+
+/** One size's outcome when pieces come back from alteration. */
+export interface AlterationReturnItem {
+  sku: string;
+  qtyFinished: number;
+  qtyScrapped?: number;
+}
+
+/**
+ * Record pieces coming BACK from alteration. Not a stage move — the lot is
+ * already in finishing, so only the per-size counts change. The server rejects
+ * returning more than is outstanding (`stitched - finished - scrapped`).
+ */
+export function alterationReturn(
+  id: number,
+  items: AlterationReturnItem[],
+): Promise<ProductionBatch> {
+  return apiClient
+    .post<ProductionBatch>(`/api/production/batches/${id}/actions/alteration-return`, { items })
     .then((r) => r.data);
 }
