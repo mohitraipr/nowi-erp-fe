@@ -155,17 +155,26 @@ export default function AlterationReturnDialog({
                   <Input
                     type="number"
                     min={0}
-                    max={capFor(s, finished[s.sku] ?? 0)}
+                    max={outstandingFor(s)}
                     inputMode="numeric"
                     className="h-9 w-24 text-center text-sm font-semibold"
                     value={scrapped[s.sku] === 0 ? '' : String(scrapped[s.sku] ?? '')}
                     placeholder="0"
-                    onChange={(e) =>
-                      setScrapped((p) => ({
-                        ...p,
-                        [s.sku]: clamp(e.target.value, capFor(s, finished[s.sku] ?? 0)),
-                      }))
-                    }
+                    onChange={(e) => {
+                      // `finished` is pre-seeded to the WHOLE outstanding, which
+                      // left this field capped at zero — you had to clear the
+                      // other box before you could record a scrap at all. Typing
+                      // here takes its units from `finished` instead.
+                      const want = Math.max(
+                        0,
+                        Math.min(outstandingFor(s), Number.parseInt(e.target.value, 10) || 0),
+                      );
+                      setScrapped((p) => ({ ...p, [s.sku]: want }));
+                      setFinished((p) => {
+                        const room = Math.max(0, outstandingFor(s) - want);
+                        return (p[s.sku] ?? 0) > room ? { ...p, [s.sku]: room } : p;
+                      });
+                    }}
                     aria-label={t('admin.production.alterationReturn.scrappedFor', {
                       defaultValue: 'Scrapped, size {{size}}',
                       size: s.size,

@@ -65,6 +65,19 @@ type Tab = 'to_start' | 'planning' | 'in_production' | 'completed' | 'parked';
 
 const PAGE_SIZE = 50;
 
+/** Floor stage order, for direction only. Alteration is absent on purpose: it is
+ *  a quantity recorded during the stitching → finishing move, never a stage the
+ *  lot moves INTO. */
+const STAGE_SEQUENCE: BatchStatus[] = ['planning', 'cutting', 'stitching', 'finishing'];
+
+/** Is this move going forward down the floor? Unknown stages count as forward,
+ *  so a new stage defaults to capturing its quantity rather than silently not. */
+function isForward(from: BatchStatus, to: BatchStatus): boolean {
+  const a = STAGE_SEQUENCE.indexOf(from);
+  const b = STAGE_SEQUENCE.indexOf(to);
+  return a === -1 || b === -1 || b > a;
+}
+
 /** Units made but not yet shipped — what a challan can still draw from. */
 function remainingToDispatch(b: ProductionBatch): number {
   return b.sizes.reduce((n, s) => n + Math.max(0, (s.qtyProduced ?? 0) - s.qtyDispatched), 0);
@@ -767,10 +780,11 @@ export default function Production() {
           onToggleLot={toggleLot}
           onToggleAll={toggleAllLots}
           onStage={(b, status) => {
-            // Ask "how many?" whenever the TARGET records a quantity — every
-            // move, in either direction. Finishing also captures the SPLIT
-            // (how many went back for alteration instead).
-            if (STAGE_DONE[status] !== undefined) {
+            // Ask "how many?" on a FORWARD move into a stage that records a
+            // quantity. Going back is a correction — the pieces did not travel
+            // again, so a dialog there would seed forward-oriented numbers and
+            // append them, double-counting work already recorded.
+            if (STAGE_DONE[status] !== undefined && isForward(b.status, status)) {
               setStageTarget({ batch: b, status });
             } else {
               void runAction(() => advanceBatch(b.id, status));

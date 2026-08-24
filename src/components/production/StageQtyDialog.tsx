@@ -42,7 +42,13 @@ const outstanding = (
   s: BatchSizeLine,
   prevKey: (typeof PREVIOUS)[string]['key'],
   curKey: (typeof CURRENT)[string],
-): number => Math.max(0, (s[prevKey] ?? 0) - (s[curKey] ?? 0));
+): number =>
+  Math.max(
+    0,
+    // Scrapped pieces were written off at alteration — they left the lot and can
+    // never reach finishing, so they are not "still coming" to it.
+    (s[prevKey] ?? 0) - (s[curKey] ?? 0) - (curKey === 'qtyFinished' ? s.qtyScrapped : 0),
+  );
 
 /**
  * Records how many pieces of each size reached ONE stage. Every floor move goes

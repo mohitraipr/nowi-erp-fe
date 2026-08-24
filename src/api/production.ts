@@ -260,6 +260,10 @@ export function updateBatch(
 export interface StageQtyItem {
   sku: string;
   qty: number;
+  /** Of this size, how many went back for alteration instead of reaching the
+   *  target stage. Accepted ONLY on the stitching → finishing move; the server
+   *  refuses it elsewhere rather than dropping it. */
+  qtyToAlteration?: number;
 }
 
 export function advanceBatch(
