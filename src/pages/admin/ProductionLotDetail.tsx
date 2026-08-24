@@ -181,7 +181,7 @@ export default function ProductionLotDetail() {
                     {t('admin.production.lot.stitched', { defaultValue: 'Stitched' })}
                   </th>
                   <th className="py-2 pr-3 text-right font-semibold">
-                    {t('admin.production.lot.altered', { defaultValue: 'Altered' })}
+                    {t('admin.production.lot.inAlteration', { defaultValue: 'In alteration' })}
                   </th>
                   <th className="py-2 pr-3 text-right font-semibold">
                     {t('admin.production.lot.finished', { defaultValue: 'Finished' })}

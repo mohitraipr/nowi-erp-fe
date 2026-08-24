@@ -7,39 +7,23 @@ type T = ReturnType<typeof useTranslation>['t'];
 /** The three floor stages read as a state the lot is IN; the off-floor statuses
  *  (planning / completed / dispatched / cancelled) keep their plain name. */
 /**
- * Pieces still out for alteration ON ONE SIZE. Derived, never stored — a
- * returning piece is recorded into `finishing` like any other instalment and
- * this falls to zero on its own.
+ * Pieces currently out for alteration on one size.
  *
- * Bounded at BOTH ends, and both bounds are load-bearing:
- *   • `qtyAltered`                                — no more out than were ever sent back
- *   • `qtyStitched - qtyFinished - qtyScrapped`   — nor more than remain unfinished
+ * `qtyAltered` is a RECORDED BALANCE, not a cumulative count: the server writes
+ * `+n` when pieces are sent back and `-n` when they return or are scrapped, so
+ * the stage total already IS what is still out.
  *
- * Taking only the second counts ordinary stitching backlog: 100 stitched and 60
- * finished, the other 40 simply still on the machine, would read "40 out" for an
- * alteration that never happened — and offer them up as returnable.
+ * It deliberately does not derive this from the other totals. Two lots reading
+ * 100 stitched / 60 finished can mean "40 still at the tailor" or "all 40 came
+ * back and 40 others are on the machine" — same numbers, opposite answers — so
+ * any formula over them is wrong for one of the two.
  */
-export function outstandingAlterationFor(s: {
-  qtyAltered: number;
-  qtyStitched: number;
-  qtyFinished: number;
-  qtyScrapped: number;
-}): number {
-  return Math.max(
-    0,
-    Math.min(s.qtyAltered, s.qtyStitched - s.qtyFinished - s.qtyScrapped),
-  );
+export function outstandingAlterationFor(s: { qtyAltered: number }): number {
+  return Math.max(0, s.qtyAltered);
 }
 
 /** Whole-lot total of {@link outstandingAlterationFor}. */
-export function outstandingAlteration(b: {
-  sizes: {
-    qtyAltered: number;
-    qtyStitched: number;
-    qtyFinished: number;
-    qtyScrapped: number;
-  }[];
-}): number {
+export function outstandingAlteration(b: { sizes: { qtyAltered: number }[] }): number {
   return b.sizes.reduce((n, s) => n + outstandingAlterationFor(s), 0);
 }
 

@@ -49,7 +49,8 @@ export interface BatchSizeLine {
    *  shipped have no history to show. */
   qtyCut: number;
   qtyStitched: number;
-  /** Pieces ever sent back for alteration (cumulative, not "currently out"). */
+  /** Pieces CURRENTLY out for alteration — a signed balance the server keeps:
+   *  +n when pieces are sent back, -n when they return or are scrapped. */
   qtyAltered: number;
   qtyFinished: number;
   /** Written off at alteration; these never reach finishing. */
