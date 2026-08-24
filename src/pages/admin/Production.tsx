@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ChevronRight, Factory, Loader2, Search, X } from 'lucide-react';
+import { ChevronRight, Factory, Loader2, Search, Undo2, X } from 'lucide-react';
 import {
   QueueTabs,
   StyleQueueTable,
@@ -19,6 +19,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import RecordOutputDialog from '@/components/production/RecordOutputDialog';
 import StageQtyDialog from '@/components/production/StageQtyDialog';
+import AlterationReturnDialog from '@/components/production/AlterationReturnDialog';
 import StartProductionIntakeDialog from '@/components/production/StartProductionIntakeDialog';
 import DispatchBuilderDialog from '@/components/production/DispatchBuilderDialog';
 import CancelBatchDialog from '@/components/production/CancelBatchDialog';
@@ -28,6 +29,7 @@ import {
   advanceBatch,
   cancelBatch,
   completeBatch,
+  alterationReturn,
   createBatch,
   getBatches,
   parkStyle,
@@ -38,10 +40,17 @@ import {
   type CreateBatchBody,
   type ProductionBatch,
   type ProductionKpis,
+  type AlterationReturnItem,
   type StageQtyItem,
 } from '@/api/production';
 import { getInventoryHealth, type InventoryStyle } from '@/api/inventoryHealth';
-import { cleanName, coverTone, meaningfulName, statusLabel } from '@/lib/production';
+import {
+  cleanName,
+  coverTone,
+  meaningfulName,
+  outstandingAlteration,
+  statusLabel,
+} from '@/lib/production';
 import { UrgencyPill } from '@/pages/admin/InventoryHealth';
 import { useToast } from '@/components/ui/toast';
 import { useAuth } from '@/context/auth';
@@ -56,8 +65,18 @@ type Tab = 'to_start' | 'planning' | 'in_production' | 'completed' | 'parked';
 
 const PAGE_SIZE = 50;
 
-/** Floor stage order — the "how much" popup only fires moving forward. */
-const STAGE_ORDER: Record<string, number> = { cutting: 0, stitching: 1, finishing: 2 };
+/** Floor stage order, for direction only. Alteration is absent on purpose: it is
+ *  a quantity recorded during the stitching → finishing move, never a stage the
+ *  lot moves INTO. */
+const STAGE_SEQUENCE: BatchStatus[] = ['planning', 'cutting', 'stitching', 'finishing'];
+
+/** Is this move going forward down the floor? Unknown stages count as forward,
+ *  so a new stage defaults to capturing its quantity rather than silently not. */
+function isForward(from: BatchStatus, to: BatchStatus): boolean {
+  const a = STAGE_SEQUENCE.indexOf(from);
+  const b = STAGE_SEQUENCE.indexOf(to);
+  return a === -1 || b === -1 || b > a;
+}
 
 /** Units made but not yet shipped — what a challan can still draw from. */
 function remainingToDispatch(b: ProductionBatch): number {
@@ -174,6 +193,7 @@ export default function Production() {
   const [sendTarget, setSendTarget] = useState<ProductionBatch | null>(null);
   const [stageTarget, setStageTarget] = useState<{ batch: ProductionBatch; status: BatchStatus } | null>(null);
   const [cancelTarget, setCancelTarget] = useState<ProductionBatch | null>(null);
+  const [alterTarget, setAlterTarget] = useState<ProductionBatch | null>(null);
   const [dropTarget, setDropTarget] = useState<InventoryStyle | null>(null);
   // Completed-tab multi-select → the one place a challan is built. Keyed
   // per-size (`${batchId}:${sku}`) so a challan can ship a subset of a batch's
@@ -760,10 +780,11 @@ export default function Production() {
           onToggleLot={toggleLot}
           onToggleAll={toggleAllLots}
           onStage={(b, status) => {
-            // Every forward move captures "how many reached this stage",
-            // finishing included — finishing is a stage, not the finish line.
-            // Going back is a correction: just move, no popup.
-            if ((STAGE_ORDER[status] ?? 0) > (STAGE_ORDER[b.status] ?? 0)) {
+            // Ask "how many?" on a FORWARD move into a stage that records a
+            // quantity. Going back is a correction — the pieces did not travel
+            // again, so a dialog there would seed forward-oriented numbers and
+            // append them, double-counting work already recorded.
+            if (STAGE_DONE[status] !== undefined && isForward(b.status, status)) {
               setStageTarget({ batch: b, status });
             } else {
               void runAction(() => advanceBatch(b.id, status));
@@ -773,6 +794,7 @@ export default function Production() {
           onOpen={(b) => navigate(`/admin/production/lots/${b.id}`)}
           onSend={(b) => setSendTarget(b)}
           onCancel={(b) => setCancelTarget(b)}
+          onAlterationReturn={(b) => setAlterTarget(b)}
         />
       )}
 
@@ -829,6 +851,17 @@ export default function Production() {
         batches={selectedBatches}
         onClose={() => setBuilderOpen(false)}
         onConfirm={onCreateDispatch}
+      />
+      <AlterationReturnDialog
+        open={alterTarget !== null}
+        busy={busy}
+        batch={alterTarget}
+        onClose={() => setAlterTarget(null)}
+        onConfirm={(items: AlterationReturnItem[]) => {
+          const target = alterTarget;
+          setAlterTarget(null);
+          if (target) void runAction(() => alterationReturn(target.id, items));
+        }}
       />
       <CancelBatchDialog
         open={cancelTarget !== null}
@@ -1187,6 +1220,7 @@ function BatchTable({
   onCancel,
   onComplete,
   onOpen,
+  onAlterationReturn,
 }: {
   rows: ProductionBatch[];
   tab: Tab;
@@ -1207,6 +1241,8 @@ function BatchTable({
   onComplete?: (batch: ProductionBatch) => void;
   /** Opens the lot's own page. */
   onOpen?: (batch: ProductionBatch) => void;
+  /** Fired by the "N in alteration" chip — records pieces coming back. */
+  onAlterationReturn?: (batch: ProductionBatch) => void;
 }) {
   const { t } = useTranslation();
 
@@ -1418,7 +1454,9 @@ function BatchTable({
             onChange={(e) => onStage(b, e.target.value as BatchStatus)}
             className="h-8 w-full rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-white px-2 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"
           >
-            {(['cutting', 'stitching', 'finishing'] as BatchStatus[]).map((s) => (
+            {/* Sourced from ADVANCEABLE_STATUSES rather than a literal list, so
+                the dropdown and the server's accepted set can't drift. */}
+            {ADVANCEABLE_STATUSES.filter((s) => s !== 'dispatched').map((s) => (
               <option key={s} value={s}>
                 {statusLabel(t, s)}
               </option>
@@ -1427,6 +1465,39 @@ function BatchTable({
         ) : (
           <Badge variant="outline">{statusLabel(t, b.status)}</Badge>
         ),
+    });
+
+    // "N in alteration" — the signal and the action are the same object: the
+    // number telling you work is outstanding IS the button that clears it, so
+    // there is nothing to hunt for. Only rendered while something is out.
+    cols.push({
+      key: 'alteration',
+      width: '132px',
+      header: t('admin.production.alteration', { defaultValue: 'Alteration' }),
+      cell: (b) => {
+        const out = outstandingAlteration(b);
+        if (out === 0) return <span className="text-[var(--color-muted-foreground)]">—</span>;
+        if (!canWrite || !onAlterationReturn) {
+          return (
+            <Badge variant="rework">
+              {t('admin.production.alterationOut', { defaultValue: '{{n}} out', n: out })}
+            </Badge>
+          );
+        }
+        return (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onAlterationReturn(b);
+            }}
+            className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700 transition hover:bg-amber-100"
+          >
+            <Undo2 size={12} />
+            {t('admin.production.alterationOut', { defaultValue: '{{n}} out', n: out })}
+          </button>
+        );
+      },
     });
 
     cols.push({
