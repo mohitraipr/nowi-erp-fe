@@ -6,10 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { AlterationReturnItem, BatchSizeLine, ProductionBatch } from '@/api/production';
 
-/** Still out for this size: sent back, not yet finished or written off. */
-function outstandingFor(s: BatchSizeLine): number {
-  return Math.max(0, s.qtyStitched - s.qtyFinished - s.qtyScrapped);
-}
+import { outstandingAlterationFor as outstandingFor } from '@/lib/production';
 
 /**
  * Pieces coming BACK from alteration.

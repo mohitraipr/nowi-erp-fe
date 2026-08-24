@@ -6,16 +6,41 @@ type T = ReturnType<typeof useTranslation>['t'];
 
 /** The three floor stages read as a state the lot is IN; the off-floor statuses
  *  (planning / completed / dispatched / cancelled) keep their plain name. */
-/** Pieces still out for alteration: sent back, not yet finished or written off.
- *  Derived, never stored — a returning piece is recorded into `finishing` like
- *  any other instalment and this falls to zero on its own. */
-export function outstandingAlteration(b: {
-  sizes: { qtyStitched: number; qtyFinished: number; qtyScrapped: number }[];
+/**
+ * Pieces still out for alteration ON ONE SIZE. Derived, never stored — a
+ * returning piece is recorded into `finishing` like any other instalment and
+ * this falls to zero on its own.
+ *
+ * Bounded at BOTH ends, and both bounds are load-bearing:
+ *   • `qtyAltered`                                — no more out than were ever sent back
+ *   • `qtyStitched - qtyFinished - qtyScrapped`   — nor more than remain unfinished
+ *
+ * Taking only the second counts ordinary stitching backlog: 100 stitched and 60
+ * finished, the other 40 simply still on the machine, would read "40 out" for an
+ * alteration that never happened — and offer them up as returnable.
+ */
+export function outstandingAlterationFor(s: {
+  qtyAltered: number;
+  qtyStitched: number;
+  qtyFinished: number;
+  qtyScrapped: number;
 }): number {
-  return b.sizes.reduce(
-    (n, s) => n + Math.max(0, s.qtyStitched - s.qtyFinished - s.qtyScrapped),
+  return Math.max(
     0,
+    Math.min(s.qtyAltered, s.qtyStitched - s.qtyFinished - s.qtyScrapped),
   );
+}
+
+/** Whole-lot total of {@link outstandingAlterationFor}. */
+export function outstandingAlteration(b: {
+  sizes: {
+    qtyAltered: number;
+    qtyStitched: number;
+    qtyFinished: number;
+    qtyScrapped: number;
+  }[];
+}): number {
+  return b.sizes.reduce((n, s) => n + outstandingAlterationFor(s), 0);
 }
 
 const FLOOR_STAGE_LABEL: Partial<Record<BatchStatus, string>> = {

@@ -118,11 +118,19 @@ export default function StageQtyDialog({
   const maxFor = (s: BatchSizeLine): number =>
     capped ? outstanding(s, prev.key, cur) : Number.POSITIVE_INFINITY;
 
-  const set = (sku: string, raw: string, max: number) =>
-    setQty((p) => ({
-      ...p,
-      [sku]: Math.min(max, Math.max(0, Number.parseInt(raw, 10) || 0)),
-    }));
+  const set = (sku: string, raw: string, max: number) => {
+    const next = Math.min(max, Math.max(0, Number.parseInt(raw, 10) || 0));
+    setQty((p) => ({ ...p, [sku]: next }));
+    // Clamping only the field being edited let the PAIR drift over the cap:
+    // enter 10 to alteration, then raise finishing, and the stale 10 rides along
+    // into a payload the server rejects. Reconcile the other side here.
+    if (splits) {
+      setAlter((p) => {
+        const room = Math.max(0, max - next);
+        return (p[sku] ?? 0) > room ? { ...p, [sku]: room } : p;
+      });
+    }
+  };
 
   const splits = stage === 'finishing';
   const alterTotal = Object.values(alter).reduce((a, b) => a + b, 0);
@@ -138,7 +146,11 @@ export default function StageQtyDialog({
   // makes a zero-quantity submit legitimate (the work is recorded; this move is
   // only putting the lot back on the right stage).
   const anyRecorded = batch.sizes.some((s) => (s[cur] ?? 0) > 0);
-  const canSubmit = (total > 0 || anyRecorded) && (!askTailor || (tailorId !== '' && fabricOk));
+  // alterTotal counts: a run where every piece needs rework submits qty 0 to
+  // finishing and the whole quantity to alteration, which is a real move.
+  const canSubmit =
+    (total > 0 || alterTotal > 0 || anyRecorded) &&
+    (!askTailor || (tailorId !== '' && fabricOk));
 
   return (
     <Dialog
