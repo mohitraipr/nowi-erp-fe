@@ -11,7 +11,12 @@ import { HoverThumbnail, HoverTip } from '@/components/dashboard/StylesInFlightT
 import { TruncText } from '@/components/ui/trunc-text';
 import { SummaryCard } from '@/components/ui/summary-card';
 import { ALL_TIME_FROM_ISO, DateRangePicker } from '@/components/ui/DateRangePicker';
-import { FilterRail, FilterRailDivider, RAIL_SELECT_CLASS } from '@/components/ui/filter-rail';
+import {
+  FilterChips,
+  FilterRail,
+  FilterRailDivider,
+  RAIL_SELECT_CLASS,
+} from '@/components/ui/filter-rail';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -180,6 +185,12 @@ export default function Production() {
   const [loadMoreError, setLoadMoreError] = useState(false);
   const [statusFilter, setStatusFilter] = useState<BatchStatus | ''>('');
   const [originFilter, setOriginFilter] = useState<BatchOrigin | ''>('');
+  // Every tab change goes through here: each tab offers its own statuses, so a
+  // carried-over one would filter with no chip lit to explain the empty list.
+  const selectTab = (next: Tab) => {
+    setTab(next);
+    setStatusFilter('');
+  };
   // Start-date window, defaulting to all time (see ALL_TIME_FROM_ISO).
   const [dateFrom, setDateFrom] = useState<string>(ALL_TIME_FROM_ISO);
   const [dateTo, setDateTo] = useState<string>(() => daysAgoISO(0));
@@ -440,10 +451,11 @@ export default function Production() {
             : t('admin.production.plannedToast', { defaultValue: 'Added to pipeline.' }),
         );
         void loadKpis(); // KPI cards are separate state — refresh after a create.
-        setTab(dest);
-        // Switching tabs refetches on its own; already being on `dest` doesn't,
-        // so the new batch would be missing until a manual reload.
-        if (tab === dest) void load();
+        selectTab(dest);
+        // Switching tabs refetches on its own, and so does clearing the status
+        // filter; already being on `dest` with no filter set does neither, so
+        // the new batch would be missing until a manual reload.
+        if (tab === dest && !statusFilter) void load();
       })
       .catch(() =>
         toast.show(
@@ -476,7 +488,7 @@ export default function Production() {
         setSuggestions((prev) => prev.filter((x) => x.styleKey !== style.styleKey));
         toast.show(t('admin.production.plannedToast', { defaultValue: 'Added to pipeline.' }));
         void loadKpis();
-        setTab('planning');
+        selectTab('planning');
       })
       .catch(() =>
         toast.show(
@@ -508,7 +520,7 @@ export default function Production() {
       setSendTarget(null);
       // The batch just left Pipeline for the floor — follow it to the tab it's
       // now on (the send button only exists on Pipeline, so this always moves).
-      setTab('in_production');
+      selectTab('in_production');
       return updated;
     });
   };
@@ -632,32 +644,13 @@ export default function Production() {
         </h1>
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* Status / origin / start-date all filter BATCHES. The Suggested and
-              Parked tabs are served by /inventory-health instead, so the rail
-              would be inert there — and a parked style is on hold indefinitely,
-              which a date window would hide. */}
+          {/* Origin + start-date filter BATCHES (status does too, but its chips
+              sit beside the search box). The Suggested and Parked tabs are served
+              by /inventory-health instead, so the rail would be inert there — and
+              a parked style is on hold indefinitely, which a date window would
+              hide. */}
           {tab !== 'to_start' && tab !== 'parked' && (
             <FilterRail>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as BatchStatus | '')}
-              className={RAIL_SELECT_CLASS}
-              aria-label={t('admin.production.filterStatus', { defaultValue: 'Status' })}
-            >
-              <option value="">
-                {t('admin.production.statusAll', { defaultValue: 'Status: All' })}
-              </option>
-              {(tab === 'completed'
-                ? (['completed', 'dispatched'] as BatchStatus[])
-                : ADVANCEABLE_STATUSES.filter((x) => x !== 'dispatched')
-              ).map((x) => (
-                <option key={x} value={x}>
-                  {statusLabel(t, x)}
-                </option>
-              ))}
-              <option value="cancelled">{statusLabel(t, 'cancelled')}</option>
-            </select>
-            <FilterRailDivider />
             <select
               value={originFilter}
               onChange={(e) => setOriginFilter(e.target.value as BatchOrigin | '')}
@@ -700,9 +693,9 @@ export default function Production() {
         </div>
       </header>
 
-      <KpiRow kpis={kpis} onTab={setTab} />
+      <KpiRow kpis={kpis} onTab={selectTab} />
 
-      <QueueTabs tabs={tabs} active={tab} onSelect={setTab} />
+      <QueueTabs tabs={tabs} active={tab} onSelect={selectTab} />
 
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative w-full max-w-sm">
@@ -729,6 +722,24 @@ export default function Production() {
             </button>
           )}
         </div>
+        {/* Not on Planning: every batch there is `planning`, and the BE gives an
+            explicit status precedence over the tab — so a chip would replace the
+            list with floor batches while the Planning tab stayed lit. */}
+        {tab !== 'to_start' && tab !== 'parked' && tab !== 'planning' && (
+          <FilterChips
+            ariaLabel={t('admin.production.filterStatus', { defaultValue: 'Status' })}
+            options={[
+              ...(tab === 'completed'
+                ? (['completed', 'dispatched'] as BatchStatus[])
+                : ADVANCEABLE_STATUSES.filter((x) => x !== 'dispatched')),
+              'cancelled' as BatchStatus,
+            ].map((x) => ({ value: x, label: statusLabel(t, x) }))}
+            value={statusFilter ? [statusFilter] : []}
+            onToggle={(x) => setStatusFilter(statusFilter === x ? '' : x)}
+            onClear={() => setStatusFilter('')}
+            clearLabel={t('common.clear', { defaultValue: 'Clear' })}
+          />
+        )}
         {canWrite && tab === 'completed' && (
           <Button
             size="sm"

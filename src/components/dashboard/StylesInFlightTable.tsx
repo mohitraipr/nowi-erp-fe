@@ -23,11 +23,7 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { FloatingPill, TruncText } from '@/components/ui/trunc-text';
-import {
-  FilterRail,
-  FilterRailDivider,
-  FilterRailMultiSelect,
-} from '@/components/ui/filter-rail';
+import { FilterChips } from '@/components/ui/filter-rail';
 import { useToast } from '@/components/ui/toast';
 import Approval1Dialog from '@/components/styles/Approval1Dialog';
 import ParkDialog from '@/components/styles/ParkDialog';
@@ -92,13 +88,6 @@ import { formatStyleRef } from '@/lib/styleRef';
 interface Props {
   /** Seed the starting tab — Home passes it from a `?tab=` query param. */
   initialTab?: DashboardStyleTab;
-  /**
-   * DOM node in the page header's filter rail to render this table's status
-   * filter into. The control's options depend on the ACTIVE TAB, which is this
-   * component's state — so the state stays here and only the control moves.
-   * Omit and it falls back to its own rail above the card.
-   */
-  filterSlot?: HTMLElement | null;
   /** Activity window (YYYY-MM-DD) from the shared dashboard date control. */
   from?: string;
   to?: string;
@@ -507,7 +496,6 @@ export default function StylesInFlightTable({
   to,
   onActionDone,
   onViewAll,
-  filterSlot,
 }: Props) {
   const { t } = useTranslation();
   const { user } = useAuth();
@@ -643,8 +631,11 @@ export default function StylesInFlightTable({
   const selectTab = (next: DashboardStyleTab) => {
     setTab(next);
     // Switching tabs clears the (global) search so the new bucket shows its own
-    // contents, not carried-over search results.
+    // contents, not carried-over search results. Same for the status chips: the
+    // new tab offers its own statuses, so a carried-over one would filter with
+    // no chip lit to explain the empty list.
     setSearchText('');
+    setStatuses([]);
     const params = new URLSearchParams(searchParams);
     params.set('tab', next);
     params.delete('q');
@@ -1621,35 +1612,8 @@ export default function StylesInFlightTable({
       </div>
     ) : null;
 
-  // The status filter belongs in the page header's filter rail, but its options
-  // depend on THIS component's active tab — so the state stays here and only the
-  // control is portalled into the slot the page provides. Without a slot it
-  // falls back to its own rail above the card.
-  const statusControl =
-    statusOptions.length > 1 ? (
-      <>
-        <FilterRailMultiSelect
-          label={t('dashboard.table.columns.status', { defaultValue: 'Status' })}
-          allLabel={t('dashboard.table.statusFilter.all', { defaultValue: 'Status: All' })}
-          value={statuses}
-          onChange={setStatuses}
-          options={statusOptions.map((s2) => ({
-            value: s2,
-            label: t(`dashboard.table.statusFilter.${s2}` as const),
-          }))}
-        />
-        <FilterRailDivider />
-      </>
-    ) : null;
-
   return (
     <div className="space-y-3">
-      {statusControl &&
-        (filterSlot ? (
-          createPortal(statusControl, filterSlot)
-        ) : (
-          <FilterRail>{statusControl}</FilterRail>
-        ))}
       {/* One unified panel: tabs · search/pagination · table all share a
           single bordered card (the "Style tracking" treatment). */}
       <section className="overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] shadow-sm">
@@ -1691,6 +1655,29 @@ export default function StylesInFlightTable({
                 </button>
               )}
             </div>
+
+            {/* Status chips sit beside the search box. Their options depend on
+                the active tab, which is why the filter lives here and not in
+                the page header's rail. */}
+            {statusOptions.length > 1 && (
+              <FilterChips
+                ariaLabel={t('dashboard.table.columns.status', { defaultValue: 'Status' })}
+                options={statusOptions.map((s2) => ({
+                  value: s2,
+                  label: t(`dashboard.table.statusFilter.${s2}` as const),
+                }))}
+                value={statuses}
+                onToggle={(s2) =>
+                  setStatuses(
+                    statuses.includes(s2)
+                      ? statuses.filter((x) => x !== s2)
+                      : [...statuses, s2],
+                  )
+                }
+                onClear={() => setStatuses([])}
+                clearLabel={t('dashboard.table.statusFilter.clear', { defaultValue: 'Clear' })}
+              />
+            )}
           </div>
 
           {/* "Showing X–Y of Z" + prev/next (mirrored at the table bottom). */}
