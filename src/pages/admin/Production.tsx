@@ -452,9 +452,10 @@ export default function Production() {
         );
         void loadKpis(); // KPI cards are separate state — refresh after a create.
         selectTab(dest);
-        // Switching tabs refetches on its own; already being on `dest` doesn't,
-        // so the new batch would be missing until a manual reload.
-        if (tab === dest) void load();
+        // Switching tabs refetches on its own, and so does clearing the status
+        // filter; already being on `dest` with no filter set does neither, so
+        // the new batch would be missing until a manual reload.
+        if (tab === dest && !statusFilter) void load();
       })
       .catch(() =>
         toast.show(
@@ -721,7 +722,10 @@ export default function Production() {
             </button>
           )}
         </div>
-        {tab !== 'to_start' && tab !== 'parked' && (
+        {/* Not on Planning: every batch there is `planning`, and the BE gives an
+            explicit status precedence over the tab — so a chip would replace the
+            list with floor batches while the Planning tab stayed lit. */}
+        {tab !== 'to_start' && tab !== 'parked' && tab !== 'planning' && (
           <FilterChips
             ariaLabel={t('admin.production.filterStatus', { defaultValue: 'Status' })}
             options={[
