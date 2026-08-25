@@ -185,6 +185,12 @@ export default function Production() {
   const [loadMoreError, setLoadMoreError] = useState(false);
   const [statusFilter, setStatusFilter] = useState<BatchStatus | ''>('');
   const [originFilter, setOriginFilter] = useState<BatchOrigin | ''>('');
+  // Every tab change goes through here: each tab offers its own statuses, so a
+  // carried-over one would filter with no chip lit to explain the empty list.
+  const selectTab = (next: Tab) => {
+    setTab(next);
+    setStatusFilter('');
+  };
   // Start-date window, defaulting to all time (see ALL_TIME_FROM_ISO).
   const [dateFrom, setDateFrom] = useState<string>(ALL_TIME_FROM_ISO);
   const [dateTo, setDateTo] = useState<string>(() => daysAgoISO(0));
@@ -445,7 +451,7 @@ export default function Production() {
             : t('admin.production.plannedToast', { defaultValue: 'Added to pipeline.' }),
         );
         void loadKpis(); // KPI cards are separate state — refresh after a create.
-        setTab(dest);
+        selectTab(dest);
         // Switching tabs refetches on its own; already being on `dest` doesn't,
         // so the new batch would be missing until a manual reload.
         if (tab === dest) void load();
@@ -481,7 +487,7 @@ export default function Production() {
         setSuggestions((prev) => prev.filter((x) => x.styleKey !== style.styleKey));
         toast.show(t('admin.production.plannedToast', { defaultValue: 'Added to pipeline.' }));
         void loadKpis();
-        setTab('planning');
+        selectTab('planning');
       })
       .catch(() =>
         toast.show(
@@ -513,7 +519,7 @@ export default function Production() {
       setSendTarget(null);
       // The batch just left Pipeline for the floor — follow it to the tab it's
       // now on (the send button only exists on Pipeline, so this always moves).
-      setTab('in_production');
+      selectTab('in_production');
       return updated;
     });
   };
@@ -686,9 +692,9 @@ export default function Production() {
         </div>
       </header>
 
-      <KpiRow kpis={kpis} onTab={setTab} />
+      <KpiRow kpis={kpis} onTab={selectTab} />
 
-      <QueueTabs tabs={tabs} active={tab} onSelect={setTab} />
+      <QueueTabs tabs={tabs} active={tab} onSelect={selectTab} />
 
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative w-full max-w-sm">

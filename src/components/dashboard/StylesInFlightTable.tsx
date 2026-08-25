@@ -631,8 +631,11 @@ export default function StylesInFlightTable({
   const selectTab = (next: DashboardStyleTab) => {
     setTab(next);
     // Switching tabs clears the (global) search so the new bucket shows its own
-    // contents, not carried-over search results.
+    // contents, not carried-over search results. Same for the status chips: the
+    // new tab offers its own statuses, so a carried-over one would filter with
+    // no chip lit to explain the empty list.
     setSearchText('');
+    setStatuses([]);
     const params = new URLSearchParams(searchParams);
     params.set('tab', next);
     params.delete('q');
