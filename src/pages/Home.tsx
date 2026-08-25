@@ -61,7 +61,7 @@ function isoDaysAgo(n: number): string {
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
-const DEFAULT_RANGE_DAYS = 30;
+const DEFAULT_RANGE_DAYS = 7;
 // "View all" clears the activity window to surface EVERY product regardless of
 // last-touched date. The picker can't render an empty range, so we widen to an
 // all-time floor (predates all data → BE date filter matches everything)
