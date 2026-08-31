@@ -1457,7 +1457,10 @@ function BatchTable({
       width: '130px',
       header: t('admin.production.stage', { defaultValue: 'Stage' }),
       cell: (b) =>
-        canWrite && tab === 'in_production' ? (
+        // A lot listed here only because pieces are still out for alteration is
+        // already completed: reopening it would null the `qtyProduced` a challan
+        // may already have been built from. Badge only — the chip is its action.
+        canWrite && tab === 'in_production' && b.status !== 'completed' ? (
           <select
             value={b.status}
             disabled={busy}
@@ -1566,7 +1569,7 @@ function BatchTable({
           )}
           {/* Closing the lot is a deliberate click, never a side effect of
               reaching finishing — 10 of 14 made keeps the lot open. */}
-          {canWrite && tab === 'in_production' && (
+          {canWrite && tab === 'in_production' && b.status !== 'completed' && (
             <Button size="sm" disabled={busy} onClick={() => onComplete?.(b)}>
               {t('admin.production.completeCta', { defaultValue: 'Complete' })}
             </Button>
