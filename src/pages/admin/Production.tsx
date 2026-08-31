@@ -1496,30 +1496,34 @@ function BatchTable({
       cell: (b) => <span className="font-semibold">{b.qtyPlanned}</span>,
     });
 
-    cols.push({
-      key: 'atStage',
-      width: '96px',
-      align: 'right',
-      header:
-        tab === 'completed'
-          ? t('admin.production.produced', { defaultValue: 'Produced' })
-          : t('admin.production.atStage', { defaultValue: 'At stage' }),
-      cell: (b) => {
-        if (tab === 'completed') return b.qtyProduced ?? '—';
-        // "—" while the lot is still in Planning, and for lots that ran before
-        // stage entries existed — there is nothing recorded to show.
-        const at = stageTotal(b);
-        if (!at) return <span className="text-[var(--color-muted-foreground)]">—</span>;
-        return (
-          <>
-            <span className="font-semibold">{at.qty}</span>
-            <div className="mt-0.5 text-[11px] text-[var(--color-muted-foreground)]">
-              {t(`admin.production.stageDone.${b.status}`, { defaultValue: at.label })}
-            </div>
-          </>
-        );
-      },
-    });
+    // Nothing to show while a lot is still in the pipeline: no stage entries
+    // exist yet, so this only ever rendered a dash.
+    if (tab !== 'planning') {
+      cols.push({
+        key: 'atStage',
+        width: '96px',
+        align: 'right',
+        header:
+          tab === 'completed'
+            ? t('admin.production.produced', { defaultValue: 'Produced' })
+            : t('admin.production.atStage', { defaultValue: 'At stage' }),
+        cell: (b) => {
+          if (tab === 'completed') return b.qtyProduced ?? '—';
+          // "—" while the lot is still in Planning, and for lots that ran before
+          // stage entries existed — there is nothing recorded to show.
+          const at = stageTotal(b);
+          if (!at) return <span className="text-[var(--color-muted-foreground)]">—</span>;
+          return (
+            <>
+              <span className="font-semibold">{at.qty}</span>
+              <div className="mt-0.5 text-[11px] text-[var(--color-muted-foreground)]">
+                {t(`admin.production.stageDone.${b.status}`, { defaultValue: at.label })}
+              </div>
+            </>
+          );
+        },
+      });
+    }
 
     cols.push({
       key: 'stage',
@@ -1552,36 +1556,39 @@ function BatchTable({
 
     // "N in alteration" — the signal and the action are the same object: the
     // number telling you work is outstanding IS the button that clears it, so
-    // there is nothing to hunt for. Only rendered while something is out.
-    cols.push({
-      key: 'alteration',
-      width: '132px',
-      header: t('admin.production.alteration', { defaultValue: 'Alteration' }),
-      cell: (b) => {
-        const out = outstandingAlteration(b);
-        if (out === 0) return <span className="text-[var(--color-muted-foreground)]">—</span>;
-        if (!canWrite || !onAlterationReturn) {
+    // there is nothing to hunt for. Never in the pipeline: nothing has reached
+    // a stage yet, so it only ever rendered a dash there.
+    if (tab !== 'planning') {
+      cols.push({
+        key: 'alteration',
+        width: '132px',
+        header: t('admin.production.alteration', { defaultValue: 'Alteration' }),
+        cell: (b) => {
+          const out = outstandingAlteration(b);
+          if (out === 0) return <span className="text-[var(--color-muted-foreground)]">—</span>;
+          if (!canWrite || !onAlterationReturn) {
+            return (
+              <Badge variant="rework">
+                {t('admin.production.alterationOut', { defaultValue: '{{n}} out', n: out })}
+              </Badge>
+            );
+          }
           return (
-            <Badge variant="rework">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onAlterationReturn(b);
+              }}
+              className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700 transition hover:bg-amber-100"
+            >
+              <Undo2 size={12} />
               {t('admin.production.alterationOut', { defaultValue: '{{n}} out', n: out })}
-            </Badge>
+            </button>
           );
-        }
-        return (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onAlterationReturn(b);
-            }}
-            className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700 transition hover:bg-amber-100"
-          >
-            <Undo2 size={12} />
-            {t('admin.production.alterationOut', { defaultValue: '{{n}} out', n: out })}
-          </button>
-        );
-      },
-    });
+        },
+      });
+    }
 
     cols.push({
       key: 'age',
