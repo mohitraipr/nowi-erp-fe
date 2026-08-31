@@ -39,7 +39,10 @@ import {
   getBatches,
   parkStyle,
   sendToProduction,
+  setFabricStatus,
   unparkStyle,
+  FABRIC_STATUSES,
+  type FabricStatus,
   type BatchOrigin,
   type BatchStatus,
   type CreateBatchBody,
@@ -62,11 +65,26 @@ import { useAuth } from '@/context/auth';
 import { useDebounced } from '@/lib/useDebounced';
 import {
   hasAnyRole,
+  FABRIC_STATUS_WRITE_ROLES,
   PRODUCTION_CANCEL_ROLES,
   PRODUCTION_WRITE_ROLES,
 } from '@/lib/userRoles';
+import { Select } from '@/components/ui/select';
 
 type Tab = 'to_start' | 'planning' | 'in_production' | 'completed' | 'parked';
+
+/** Fallback labels — the Production page runs on inline defaultValues, not
+ *  locale files, so these are the strings unless a key is added later. */
+const FABRIC_LABEL: Record<FabricStatus, string> = {
+  available: 'Available',
+  not_available: 'Not available',
+  ordered: 'Ordered',
+};
+const FABRIC_TONE: Record<FabricStatus, string> = {
+  available: 'text-emerald-700',
+  not_available: 'text-red-700',
+  ordered: 'text-amber-700',
+};
 
 const PAGE_SIZE = 50;
 
@@ -145,6 +163,7 @@ export default function Production() {
   const [searchParams, setSearchParams] = useSearchParams();
   const canWrite = hasAnyRole(user, PRODUCTION_WRITE_ROLES);
   const canCancel = hasAnyRole(user, PRODUCTION_CANCEL_ROLES);
+  const canSetFabric = hasAnyRole(user, FABRIC_STATUS_WRITE_ROLES);
 
   // Opens on the floor by default ("what's running right now?"), but honours
   // ?tab= so other pages can deep-link here — e.g. starting a batch elsewhere
@@ -783,6 +802,7 @@ export default function Production() {
           rows={batches}
           tab={tab}
           canWrite={canWrite}
+          canSetFabric={canSetFabric}
           canCancel={canCancel}
           busy={busy}
           selectable={canWrite && tab === 'completed'}
@@ -804,6 +824,9 @@ export default function Production() {
           onComplete={(b) => setOutputTarget(b)}
           onOpen={(b) => navigate(`/admin/production/lots/${b.id}`)}
           onSend={(b) => setSendTarget(b)}
+          onFabricStatus={(b, next) =>
+            void runAction(() => setFabricStatus(b.id, next))
+          }
           onCancel={(b) => setCancelTarget(b)}
           onAlterationReturn={(b) => setAlterTarget(b)}
         />
@@ -1218,6 +1241,7 @@ function BatchTable({
   rows,
   tab,
   canWrite,
+  canSetFabric,
   canCancel,
   busy,
   loading,
@@ -1228,6 +1252,7 @@ function BatchTable({
   onToggleAll,
   onStage,
   onSend,
+  onFabricStatus,
   onCancel,
   onComplete,
   onOpen,
@@ -1236,6 +1261,9 @@ function BatchTable({
   rows: ProductionBatch[];
   tab: Tab;
   canWrite: boolean;
+  /** Fabric status is its own gate — the fabric desk may set it without
+   *  gaining any other batch edit. */
+  canSetFabric: boolean;
   canCancel: boolean;
   busy: boolean;
   loading?: boolean;
@@ -1247,6 +1275,7 @@ function BatchTable({
   onToggleAll?: (on: boolean) => void;
   onStage: (batch: ProductionBatch, status: BatchStatus) => void;
   onSend: (batch: ProductionBatch) => void;
+  onFabricStatus: (batch: ProductionBatch, next: FabricStatus | null) => void;
   onCancel: (batch: ProductionBatch) => void;
   /** Closes the lot: records produced-per-size and asks why if it's short. */
   onComplete?: (batch: ProductionBatch) => void;
@@ -1419,6 +1448,46 @@ function BatchTable({
       ),
     });
 
+    // Pipeline only: once the lot is on the floor the cloth is demonstrably
+    // there, and the BE refuses the edit anyway.
+    if (tab === 'planning') {
+      cols.push({
+        key: 'fabric',
+        width: '150px',
+        header: t('admin.production.fabric', { defaultValue: 'Fabric' }),
+        cell: (b) =>
+          canSetFabric ? (
+            <span onClick={stopRowClick}>
+              <Select
+                className="h-8 rounded-md px-2 text-xs"
+                value={b.fabricStatus ?? ''}
+                disabled={busy}
+                onChange={(e) =>
+                  onFabricStatus(b, (e.target.value || null) as FabricStatus | null)
+                }
+              >
+                <option value="">
+                  {t('admin.production.fabricUnset', { defaultValue: '— Not set' })}
+                </option>
+                {FABRIC_STATUSES.map((f) => (
+                  <option key={f} value={f}>
+                    {t(`admin.production.fabricStatus.${f}`, { defaultValue: FABRIC_LABEL[f] })}
+                  </option>
+                ))}
+              </Select>
+            </span>
+          ) : (
+            <span className={b.fabricStatus ? FABRIC_TONE[b.fabricStatus] : 'text-[var(--color-muted-foreground)]'}>
+              {b.fabricStatus
+                ? t(`admin.production.fabricStatus.${b.fabricStatus}`, {
+                    defaultValue: FABRIC_LABEL[b.fabricStatus],
+                  })
+                : '—'}
+            </span>
+          ),
+      });
+    }
+
     cols.push({
       key: 'planned',
       width: '80px',
@@ -1540,6 +1609,8 @@ function BatchTable({
     t,
     tab,
     canWrite,
+    canSetFabric,
+    onFabricStatus,
     busy,
     selectable,
     selected,
@@ -1563,7 +1634,18 @@ function BatchTable({
       renderActions={(b) => (
         <span className="flex items-center gap-2" onClick={stopRowClick}>
           {canWrite && tab === 'planning' && (
-            <Button size="sm" disabled={busy} onClick={() => onSend(b)}>
+            <Button
+              size="sm"
+              disabled={busy || b.fabricStatus === 'not_available'}
+              title={
+                b.fabricStatus === 'not_available'
+                  ? t('admin.production.blockedNoFabric', {
+                      defaultValue: 'Fabric is marked not available.',
+                    })
+                  : undefined
+              }
+              onClick={() => onSend(b)}
+            >
               {t('admin.production.sendToProduction', { defaultValue: 'Send to production' })}
             </Button>
           )}

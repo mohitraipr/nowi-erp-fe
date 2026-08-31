@@ -63,6 +63,11 @@ export interface BatchSizeLine {
   qtyDispatched: number;
 }
 
+/** Whether a batch's fabric is sorted. Mirrors the BE enum. */
+export type FabricStatus = 'available' | 'not_available' | 'ordered';
+
+export const FABRIC_STATUSES: FabricStatus[] = ['available', 'not_available', 'ordered'];
+
 export interface ProductionBatch {
   id: number;
   batchNo: string;
@@ -76,6 +81,9 @@ export interface ProductionBatch {
   externalSku: string | null;
   /** Colour master for an external batch; null on style/forecast batches. */
   colourId: number | null;
+  /** Is the fabric sorted? null = nobody has said yet. Editable on Pipeline
+   *  only; `not_available` blocks send-to-production. */
+  fabricStatus: FabricStatus | null;
   colourName: string | null;
   colourHex: string | null;
   /** Tailor the lot went to the floor with; their code is inside `batchNo`. */
@@ -293,6 +301,17 @@ export function sendToProduction(
       ...(extra?.tailorId != null ? { tailorId: extra.tailorId } : {}),
       ...(extra?.fabricFeasible != null ? { fabricFeasible: extra.fabricFeasible } : {}),
     })
+    .then((r) => r.data);
+}
+
+/** Set (or clear, with null) whether the batch's fabric is sorted. Pipeline
+ *  only — the BE refuses it once the lot is on the floor. */
+export function setFabricStatus(
+  id: number,
+  fabricStatus: FabricStatus | null,
+): Promise<ProductionBatch> {
+  return apiClient
+    .patch<ProductionBatch>(`/api/production/batches/${id}/fabric-status`, { fabricStatus })
     .then((r) => r.data);
 }
 
