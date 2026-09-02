@@ -150,9 +150,9 @@ const NAV_SECTIONS: NavSection[] = [
       // Floor surfaces — admins drop in to triage / receive / forward when
       // a floor user is unavailable. Each route already permits 'admin' in
       // ProtectedRoute.
-      { to: '/floor', icon: <Boxes size={18} />, labelKey: 'admin.nav.floor', roles: ['admin', 'production_lead'] },
-      { to: '/stitching', icon: <Scissors size={18} />, labelKey: 'admin.nav.stitching', roles: ['admin', 'production_lead'] },
-      { to: '/finishing', icon: <Sparkles size={18} />, labelKey: 'admin.nav.finishing', roles: ['admin', 'production_lead'] },
+      { to: '/floor', icon: <Boxes size={18} />, labelKey: 'admin.nav.floor', roles: ['admin'] },
+      { to: '/stitching', icon: <Scissors size={18} />, labelKey: 'admin.nav.stitching', roles: ['admin'] },
+      { to: '/finishing', icon: <Sparkles size={18} />, labelKey: 'admin.nav.finishing', roles: ['admin'] },
     ],
   },
   {
