@@ -1643,13 +1643,18 @@ function BatchTable({
           {canWrite && tab === 'planning' && (
             <Button
               size="sm"
-              disabled={busy || b.fabricStatus === 'not_available'}
+              // The server refuses both, so the click was only going to fail.
+              disabled={busy || b.fabricStatus == null || b.fabricStatus === 'not_available'}
               title={
-                b.fabricStatus === 'not_available'
-                  ? t('admin.production.blockedNoFabric', {
-                      defaultValue: 'Fabric is marked not available.',
+                b.fabricStatus == null
+                  ? t('admin.production.blockedFabricUnset', {
+                      defaultValue: 'Set the fabric status first.',
                     })
-                  : undefined
+                  : b.fabricStatus === 'not_available'
+                    ? t('admin.production.blockedNoFabric', {
+                        defaultValue: 'Fabric is marked not available.',
+                      })
+                    : undefined
               }
               onClick={() => onSend(b)}
             >

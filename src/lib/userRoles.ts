@@ -190,6 +190,19 @@ export const PRODUCTION_READ_ROLES: readonly UserRole[] = [
 ];
 
 /**
+ * Who may READ the production board itself — the read set plus the fabric desk,
+ * which sets each lot's fabric status there. Mirrors the BE
+ * `PRODUCTION_BOARD_READ_ROLES`.
+ *
+ * Deliberately NOT {@link PRODUCTION_READ_ROLES}: that also gates Inventory
+ * Health, and the fabric desk has no business in the sales forecast.
+ */
+export const PRODUCTION_BOARD_READ_ROLES: readonly UserRole[] = [
+  ...PRODUCTION_READ_ROLES,
+  'fabric_manager',
+];
+
+/**
  * Who may SEE the Dispatch/challan tab — the production readers plus the
  * receiving `warehouse_manager` desk. Mirrors the BE dispatch controller VIEW
  * set. Also the route guard for a warehouse-only user reaching the Production

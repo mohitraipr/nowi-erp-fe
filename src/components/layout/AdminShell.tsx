@@ -33,7 +33,12 @@ import { useToast } from '@/components/ui/toast';
 import LanguageToggle from '@/components/LanguageToggle';
 import Logo from '@/components/Logo';
 import { cn } from '@/lib/utils';
-import { userAllRoles, DISPATCH_VIEW_ROLES, PRODUCTION_READ_ROLES } from '@/lib/userRoles';
+import {
+  userAllRoles,
+  DISPATCH_VIEW_ROLES,
+  PRODUCTION_BOARD_READ_ROLES,
+  PRODUCTION_READ_ROLES,
+} from '@/lib/userRoles';
 import type { UserRole } from '@/api/types';
 import { RailTooltip, SectionFlyout } from '@/components/ui/sidebar-tooltip';
 
@@ -88,7 +93,7 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/', end: true, icon: <LayoutDashboard size={18} />, labelKey: 'admin.nav.dashboard', roles: OFFICE_ROLES },
       // Sits directly under Sampling: production work starts from the
       // forecast, so it belongs in the main flow, not buried in Analytics.
-      { to: '/admin/production', icon: <Factory size={18} />, labelKey: 'admin.nav.productionPipeline', roles: [...PRODUCTION_READ_ROLES] },
+      { to: '/admin/production', icon: <Factory size={18} />, labelKey: 'admin.nav.productionPipeline', roles: [...PRODUCTION_BOARD_READ_ROLES] },
       // Old Sampling registry (the legacy Styles page). RETIRED from the nav —
       // the Dashboard ("Sampling") is now the single sampling surface. The
       // /styles ROUTE stays (the dashboard drill-down + intake still use it),
