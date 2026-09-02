@@ -91,9 +91,6 @@ export default function StageQtyDialog({
   // after stitching, and nothing before that stage can be "sent back".
   const [alter, setAlter] = useState<Record<string, number>>({});
   const [tailorId, setTailorId] = useState<number | ''>('');
-  // Asked once, on the way to the floor: cutting into fabric you don't have is
-  // the expensive mistake. Recorded on the audit entry for the send.
-  const [fabricOk, setFabricOk] = useState(false);
 
   const prev = PREVIOUS[stage] ?? PREVIOUS.cutting;
   const cur = CURRENT[stage] ?? 'qtyCut';
@@ -109,7 +106,6 @@ export default function StageQtyDialog({
     setQty(seeded);
     setAlter({});
     setTailorId(batch.tailorId ?? '');
-    setFabricOk(false);
   }, [open, batch, prev.key, cur]);
 
   const total = useMemo(() => Object.values(qty).reduce((a, b) => a + b, 0), [qty]);
@@ -156,7 +152,7 @@ export default function StageQtyDialog({
   // finishing and the whole quantity to alteration, which is a real move.
   const canSubmit =
     (total > 0 || alterTotal > 0 || anyRecorded) &&
-    (!askTailor || (tailorId !== '' && fabricOk));
+    (!askTailor || tailorId !== '');
 
   return (
     <Dialog
@@ -195,10 +191,7 @@ export default function StageQtyDialog({
                     : {}),
                 })),
                 askTailor
-                  ? {
-                      tailorId: tailorId === '' ? undefined : tailorId,
-                      fabricFeasible: fabricOk,
-                    }
+                  ? { tailorId: tailorId === '' ? undefined : tailorId }
                   : undefined,
               )
             }
@@ -231,20 +224,6 @@ export default function StageQtyDialog({
             value={tailorId === '' ? null : tailorId}
             onChange={(id) => setTailorId(id ?? '')}
           />
-
-          <label className="mt-3 flex cursor-pointer items-center gap-2.5 rounded-[var(--radius-sm)] border border-[var(--color-border)] px-3 py-2 hover:bg-[var(--color-surface-2)]/40">
-            <input
-              type="checkbox"
-              checked={fabricOk}
-              onChange={(e) => setFabricOk(e.target.checked)}
-              className="h-4 w-4 accent-[var(--color-primary)]"
-            />
-            <span className="text-sm">
-              {t('admin.production.stage.fabricFeasible', {
-                defaultValue: 'Fabric is available for this lot.',
-              })}
-            </span>
-          </label>
         </div>
       )}
 

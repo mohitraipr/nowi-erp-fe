@@ -158,6 +158,19 @@ export const PRODUCTION_WRITE_ROLES: readonly UserRole[] = [
 ];
 
 /**
+ * Who may set a batch's fabric status on the Pipeline tab — the production desk
+ * plus the fabric desk, which owns whether the cloth is actually there. Mirrors
+ * the BE `FABRIC_STATUS_WRITE_ROLES`.
+ *
+ * Its own set because it is its own endpoint: the batch PATCH reaches planned
+ * quantities, which the fabric desk must not gain.
+ */
+export const FABRIC_STATUS_WRITE_ROLES: readonly UserRole[] = [
+  ...PRODUCTION_WRITE_ROLES,
+  'fabric_manager',
+];
+
+/**
  * Cancelling destroys a plan, so it stays with admin + the production admin —
  * mirrors the BE `CANCEL` set on `production.controller.ts`.
  */
@@ -174,6 +187,19 @@ export const PRODUCTION_CANCEL_ROLES: readonly UserRole[] = [
 export const PRODUCTION_READ_ROLES: readonly UserRole[] = [
   ...PRODUCTION_WRITE_ROLES,
   'viewer',
+];
+
+/**
+ * Who may READ the production board itself — the read set plus the fabric desk,
+ * which sets each lot's fabric status there. Mirrors the BE
+ * `PRODUCTION_BOARD_READ_ROLES`.
+ *
+ * Deliberately NOT {@link PRODUCTION_READ_ROLES}: that also gates Inventory
+ * Health, and the fabric desk has no business in the sales forecast.
+ */
+export const PRODUCTION_BOARD_READ_ROLES: readonly UserRole[] = [
+  ...PRODUCTION_READ_ROLES,
+  'fabric_manager',
 ];
 
 /**
