@@ -6,8 +6,19 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/toast';
-import { getLot, type LotDetail, type LotTimelineEntry } from '@/api/production';
+import LotStageStepper from '@/components/production/LotStageStepper';
+import EditLotDialog from '@/components/production/EditLotDialog';
+import {
+  advanceBatch,
+  getLot,
+  updateBatch,
+  type BatchStatus,
+  type LotDetail,
+  type LotTimelineEntry,
+} from '@/api/production';
 import { statusLabel } from '@/lib/production';
+import { hasAnyRole, PRODUCTION_WRITE_ROLES } from '@/lib/userRoles';
+import { useAuth } from '@/context/auth';
 
 /** Stage pill colours, reusing the badge variants the floor screens already use. */
 const STAGE_VARIANT: Record<
@@ -22,6 +33,9 @@ const STAGE_VARIANT: Record<
   finishing: 'finish',
   scrapped: 'destructive',
 };
+
+/** Statuses the server will accept a plan edit on. */
+const ON_FLOOR: BatchStatus[] = ['cutting', 'stitching', 'finishing'];
 
 function fmtDate(iso: string | null): string {
   if (!iso) return '—';
@@ -53,8 +67,14 @@ export default function ProductionLotDetail() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
+  const { user } = useAuth();
+  const canWrite = hasAnyRole(user, PRODUCTION_WRITE_ROLES);
   const [lot, setLot] = useState<LotDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  // The lot page is where a mis-click gets undone: the board only ever moves a
+  // lot forward, so a wrong stage — and the plan behind it — is corrected here.
+  const [editOpen, setEditOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -88,6 +108,34 @@ export default function ProductionLotDetail() {
 
   // Newest first: the last thing that happened is what you came here to see.
   const timeline = useMemo(() => [...(lot?.timeline ?? [])].reverse(), [lot]);
+
+  const reload = async () => setLot(await getLot(Number(id)));
+
+  const save = async (planned: Record<string, number>, status: BatchStatus) => {
+    if (!lot) return;
+    setSaving(true);
+    try {
+      const plannedChanged = lot.sizes.some((s) => planned[s.sku] !== s.qtyPlanned);
+      // `items` REPLACES the size lines, so every size goes up, not just edits.
+      if (plannedChanged) {
+        await updateBatch(lot.id, {
+          items: lot.sizes.map((s) => ({
+            sku: s.sku,
+            size: s.size,
+            qtyPlanned: planned[s.sku] ?? s.qtyPlanned,
+          })),
+        });
+      }
+      if (status !== lot.status) await advanceBatch(lot.id, status);
+      await reload();
+      setEditOpen(false);
+      toast.show(t('common.saved', { defaultValue: 'Saved.' }));
+    } catch {
+      toast.show(t('common.error', { defaultValue: 'Something went wrong.' }), 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -138,15 +186,31 @@ export default function ProductionLotDetail() {
   const stageCell = (stage: LotTimelineEntry['stage'], qty: number) =>
     recorded.has(stage) ? qty : '—';
 
+  /** How much of the plan is finished. Caps at 100% — cumulative finishing can
+   *  exceed the plan once pieces go round again through alteration. */
+  const bar = (done: number, plan: number) => {
+    const pct = Math.min(100, Math.round((done / (plan || 1)) * 100));
+    return (
+      <div className="flex items-center gap-2">
+        <div className="h-2 flex-1 overflow-hidden rounded-full bg-[var(--color-surface-2)]">
+          <div className="h-full rounded-full bg-[var(--color-primary)]" style={{ width: `${pct}%` }} />
+        </div>
+        <span className="w-9 text-[11px] font-semibold text-[var(--color-muted-foreground)]">
+          {pct}%
+        </span>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="outline" onClick={() => navigate('/admin/production')}>
           {t('common.back', { defaultValue: 'Back' })}
         </Button>
-        <h1 className="font-mono text-lg font-semibold">{lot.batchNo}</h1>
+        <h1 className="text-2xl font-bold tracking-tight">{lot.batchNo}</h1>
         {(lot.name || lot.styleRef) && (
-          <span className="text-sm text-[var(--color-muted-foreground)]">
+          <span className="text-base text-[var(--color-muted-foreground)]">
             {lot.name ?? lot.styleRef}
           </span>
         )}
@@ -154,7 +218,27 @@ export default function ProductionLotDetail() {
         {lot.tailorName && <Badge variant="secondary">{lot.tailorName}</Badge>}
         {lot.brandName && <Badge variant="outline">{lot.brandName}</Badge>}
         {lot.colourName && <Badge variant="outline">{lot.colourName}</Badge>}
+
+        {/* The server only accepts a plan edit while the lot is on the floor,
+            so the button is absent rather than failing on save. */}
+        {canWrite && ON_FLOOR.includes(lot.status) && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="ml-auto"
+            disabled={saving}
+            onClick={() => setEditOpen(true)}
+          >
+            {t('common.edit', { defaultValue: 'Edit' })}
+          </Button>
+        )}
       </div>
+
+      <Card>
+        <CardContent className="pt-6">
+          <LotStageStepper lot={lot} />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -187,13 +271,10 @@ export default function ProductionLotDetail() {
                     {t('admin.production.lot.finished', { defaultValue: 'Finished' })}
                   </th>
                   <th className="py-2 pr-3 text-right font-semibold">
-                    {t('admin.production.lot.scrapped', { defaultValue: 'Scrapped' })}
-                  </th>
-                  <th className="py-2 pr-3 text-right font-semibold">
-                    {t('admin.production.lot.made', { defaultValue: 'Made' })}
-                  </th>
-                  <th className="py-2 text-right font-semibold">
                     {t('admin.production.lot.dispatched', { defaultValue: 'Dispatched' })}
+                  </th>
+                  <th className="w-40 py-2 text-left font-semibold">
+                    {t('admin.production.lot.progress', { defaultValue: 'Progress' })}
                   </th>
                 </tr>
               </thead>
@@ -207,19 +288,22 @@ export default function ProductionLotDetail() {
                     <td className="py-2 pr-3 text-right">
                       {stageCell('stitching', s.qtyStitched)}
                     </td>
-                    <td className="py-2 pr-3 text-right">
+                    <td className="py-2 pr-3 text-right text-[var(--color-muted-foreground)]">
                       {stageCell('alteration', s.qtyAltered)}
                     </td>
-                    <td className="py-2 pr-3 text-right">
+                    <td
+                      className={`py-2 pr-3 text-right font-semibold ${
+                        recorded.has('finishing')
+                          ? 'text-emerald-700'
+                          : 'text-[var(--color-muted-foreground)]'
+                      }`}
+                    >
                       {stageCell('finishing', s.qtyFinished)}
                     </td>
-                    <td className="py-2 pr-3 text-right">
-                      {stageCell('scrapped', s.qtyScrapped)}
-                    </td>
-                    <td className="py-2 pr-3 text-right font-semibold">{s.qtyProduced ?? '—'}</td>
-                    <td className="py-2 text-right text-[var(--color-muted-foreground)]">
+                    <td className="py-2 pr-3 text-right text-[var(--color-muted-foreground)]">
                       {s.qtyDispatched}
                     </td>
+                    <td className="py-2">{bar(s.qtyFinished, s.qtyPlanned)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -233,19 +317,22 @@ export default function ProductionLotDetail() {
                   <td className="py-2 pr-3 text-right">
                     {stageCell('stitching', totals.stitched)}
                   </td>
-                  <td className="py-2 pr-3 text-right">
+                  <td className="py-2 pr-3 text-right text-[var(--color-muted-foreground)]">
                     {stageCell('alteration', totals.altered)}
                   </td>
-                  <td className="py-2 pr-3 text-right">
+                  <td
+                    className={`py-2 pr-3 text-right ${
+                      recorded.has('finishing')
+                        ? 'text-emerald-700'
+                        : 'text-[var(--color-muted-foreground)]'
+                    }`}
+                  >
                     {stageCell('finishing', totals.finished)}
                   </td>
-                  <td className="py-2 pr-3 text-right">
-                    {stageCell('scrapped', totals.scrapped)}
-                  </td>
-                  <td className="py-2 pr-3 text-right">{lot.qtyProduced ?? '—'}</td>
-                  <td className="py-2 text-right text-[var(--color-muted-foreground)]">
+                  <td className="py-2 pr-3 text-right text-[var(--color-muted-foreground)]">
                     {totals.dispatched}
                   </td>
+                  <td className="py-2">{bar(totals.finished, totals.planned)}</td>
                 </tr>
               </tfoot>
             </table>
@@ -253,6 +340,7 @@ export default function ProductionLotDetail() {
         </CardContent>
       </Card>
 
+      <div className="grid items-start gap-4 lg:grid-cols-[1.5fr_1fr]">
       <Card>
         <CardHeader>
           <CardTitle>
@@ -295,12 +383,13 @@ export default function ProductionLotDetail() {
         </CardContent>
       </Card>
 
+      <div className="flex flex-col gap-4">
       <Card>
         <CardHeader>
           <CardTitle>{t('admin.production.lot.details', { defaultValue: 'Details' })}</CardTitle>
         </CardHeader>
         <CardContent>
-          <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-4">
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
             <Field
               label={t('admin.production.lot.startedAt', { defaultValue: 'Added' })}
               value={fmtDate(lot.startedAt)}
@@ -348,6 +437,47 @@ export default function ProductionLotDetail() {
           </dl>
         </CardContent>
       </Card>
+
+      <Card>
+        <CardContent className="flex flex-col gap-2.5 pt-6 text-sm">
+          <Stat
+            label={t('admin.production.lot.timeInStage', { defaultValue: 'Time in current stage' })}
+            value={`${lot.daysInStatus}d`}
+          />
+          <Stat
+            label={t('admin.production.lot.inAlteration', { defaultValue: 'In alteration' })}
+            value={totals.altered || '—'}
+          />
+          <Stat
+            label={t('admin.production.lot.scrapped', { defaultValue: 'Scrapped' })}
+            value={totals.scrapped || '—'}
+          />
+          <Stat
+            label={t('admin.production.lot.made', { defaultValue: 'Made' })}
+            value={lot.qtyProduced ?? '—'}
+          />
+        </CardContent>
+      </Card>
+      </div>
+      </div>
+
+      <EditLotDialog
+        open={editOpen}
+        busy={saving}
+        lot={lot}
+        onClose={() => setEditOpen(false)}
+        onSave={(planned, status) => void save(planned, status)}
+      />
+    </div>
+  );
+}
+
+/** One label/value line in the lot summary card. */
+function Stat({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="font-medium text-[var(--color-muted-foreground)]">{label}</span>
+      <span className="font-bold">{value}</span>
     </div>
   );
 }
