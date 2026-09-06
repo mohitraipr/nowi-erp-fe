@@ -10,8 +10,10 @@ import LotStageStepper from '@/components/production/LotStageStepper';
 import EditLotDialog from '@/components/production/EditLotDialog';
 import {
   advanceBatch,
+  correctStageQuantities,
   getLot,
   updateBatch,
+  type CorrectStageQtyItem,
   type BatchStatus,
   type LotDetail,
   type LotTimelineEntry,
@@ -111,7 +113,11 @@ export default function ProductionLotDetail() {
 
   const reload = async () => setLot(await getLot(Number(id)));
 
-  const save = async (planned: Record<string, number>, status: BatchStatus) => {
+  const save = async (
+    planned: Record<string, number>,
+    corrections: CorrectStageQtyItem[],
+    status: BatchStatus,
+  ) => {
     if (!lot) return;
     setSaving(true);
     try {
@@ -126,6 +132,9 @@ export default function ProductionLotDetail() {
           })),
         });
       }
+      // Before the stage move: a correction is refused once the lot is off the
+      // floor, so it has to land while the lot is still where it was.
+      if (corrections.length > 0) await correctStageQuantities(lot.id, corrections);
       if (status !== lot.status) await advanceBatch(lot.id, status);
       await reload();
       setEditOpen(false);
@@ -466,7 +475,7 @@ export default function ProductionLotDetail() {
         busy={saving}
         lot={lot}
         onClose={() => setEditOpen(false)}
-        onSave={(planned, status) => void save(planned, status)}
+        onSave={(planned, corrections, status) => void save(planned, corrections, status)}
       />
     </div>
   );

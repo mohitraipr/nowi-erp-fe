@@ -315,6 +315,29 @@ export function setFabricStatus(
     .then((r) => r.data);
 }
 
+/** A corrected TOTAL per stage for one size. Omit a stage to leave it alone. */
+export interface CorrectStageQtyItem {
+  sku: string;
+  cutting?: number;
+  stitching?: number;
+  finishing?: number;
+}
+
+/**
+ * Corrects what a stage RECORDED. Send the total each stage should read — the
+ * server writes the adjusting entry, so the history keeps the original figure
+ * and who changed it. This is the only path that can take a total DOWN; the
+ * ordinary stage entry only ever adds.
+ */
+export function correctStageQuantities(
+  id: number,
+  items: CorrectStageQtyItem[],
+): Promise<ProductionBatch> {
+  return apiClient
+    .post<ProductionBatch>(`/api/production/batches/${id}/actions/correct`, { items })
+    .then((r) => r.data);
+}
+
 export function completeBatch(
   id: number,
   items: { sku: string; qtyProduced: number }[],
