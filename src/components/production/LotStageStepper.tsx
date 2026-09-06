@@ -25,7 +25,11 @@ export default function LotStageStepper({ lot }: { lot: ProductionBatch }) {
   const altered = sum((s) => s.qtyAltered);
   const scrapped = sum((s) => s.qtyScrapped);
 
+  // `indexOf` is -1 both BEFORE the floor (planning) and after it (completed,
+  // dispatched). Treating them alike ticked every stage on a lot that had not
+  // started, so past-the-floor is named explicitly rather than inferred.
   const at = ORDER.indexOf(lot.status);
+  const pastFloor = ['completed', 'dispatched'].includes(lot.status);
   const steps = [
     { key: 'cutting', value: cut, label: 'cut', ready: 0 },
     {
@@ -46,8 +50,7 @@ export default function LotStageStepper({ lot }: { lot: ProductionBatch }) {
   return (
     <div className="flex items-center gap-0 overflow-x-auto">
       {steps.map((step, i) => {
-        // `at` is -1 off the floor (completed, dispatched): everything is behind us.
-        const done = at === -1 || i < at;
+        const done = pastFloor || (at !== -1 && i < at);
         const here = i === at;
         return (
           <div key={step.key} className="flex flex-1 items-center last:flex-none">

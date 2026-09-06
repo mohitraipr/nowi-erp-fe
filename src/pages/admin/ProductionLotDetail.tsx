@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -78,6 +78,11 @@ export default function ProductionLotDetail() {
   const [editOpen, setEditOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  const latestId = useRef(id);
+  useEffect(() => {
+    latestId.current = id;
+  }, [id]);
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -111,7 +116,15 @@ export default function ProductionLotDetail() {
   // Newest first: the last thing that happened is what you came here to see.
   const timeline = useMemo(() => [...(lot?.timeline ?? [])].reverse(), [lot]);
 
-  const reload = async () => setLot(await getLot(Number(id)));
+  // Guarded against navigation: a save still in flight when the user opens
+  // another lot would otherwise drop the previous lot's data on top of it. The
+  // ref is what makes this work — `id` in this closure is the one captured when
+  // the reload started, so comparing it to itself would always agree.
+  const reload = async () => {
+    const forId = id;
+    const fresh = await getLot(Number(forId));
+    if (forId === latestId.current) setLot(fresh);
+  };
 
   const save = async (
     planned: Record<string, number>,
