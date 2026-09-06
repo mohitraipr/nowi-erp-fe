@@ -5,11 +5,11 @@ import { Dialog } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import TailorPicker from '@/components/production/TailorPicker';
-import type {
-  BatchSizeLine,
-  BatchStatus,
-  ProductionBatch,
-  StageQtyItem,
+import {
+  type BatchSizeLine,
+  type BatchStatus,
+  type ProductionBatch,
+  type StageQtyItem,
 } from '@/api/production';
 
 /** Which recorded figure the stage being entered is measured against. Cutting
@@ -35,9 +35,7 @@ const STAGE_VERB: Record<string, string> = {
   finishing: 'Finishing',
 };
 
-/** What this stage still has coming to it: what the previous step passed on,
- *  less what this stage already banked. Both the seeded value and the input's
- *  ceiling are this number, so they can't drift apart. */
+/** What this stage still has coming to it — used to SEED the box only. */
 const outstanding = (
   s: BatchSizeLine,
   prevKey: (typeof PREVIOUS)[string]['key'],
@@ -49,6 +47,27 @@ const outstanding = (
     // never reach finishing, so they are not "still coming" to it.
     (s[prevKey] ?? 0) - (s[curKey] ?? 0) - (curKey === 'qtyFinished' ? s.qtyScrapped : 0),
   );
+
+/** Pieces that physically exist for this stage to work on. Deliberately NOT
+ *  reduced by what this stage already recorded: those entries are append-only
+ *  and only ever grow, so folding them in locks the dialog shut for good once a
+ *  lot has been through the stage once. Mirrors the server's own bound. */
+const ceiling = (
+  s: BatchSizeLine,
+  prevKey: (typeof PREVIOUS)[string]['key'],
+  curKey: (typeof CURRENT)[string],
+): number =>
+  Math.max(0, (s[prevKey] ?? 0) - (curKey === 'qtyFinished' ? s.qtyScrapped : 0));
+
+/** Wording for the over-entry message. Cutting is absent: it answers to the
+ *  plan, and cutting over plan is a real thing that happens on the floor. */
+const OVER_WORDS: Record<string, { action: string; from: string }> = {
+  stitching: { action: 'stitch', from: 'cutting' },
+  finishing: { action: 'finish', from: 'stitching' },
+};
+
+/** One size the operator has over-entered. */
+type Overflow = { size: string; entered: number; limit: number };
 
 /**
  * Records how many pieces of each size reached ONE stage. Every floor move goes
@@ -91,6 +110,9 @@ export default function StageQtyDialog({
   // after stitching, and nothing before that stage can be "sent back".
   const [alter, setAlter] = useState<Record<string, number>>({});
   const [tailorId, setTailorId] = useState<number | ''>('');
+  // Set when the stage button is pressed with a size over its ceiling. Recomputed
+  // from scratch on every press, so a size that gets fixed stops being listed.
+  const [overflows, setOverflows] = useState<Overflow[]>([]);
 
   const prev = PREVIOUS[stage] ?? PREVIOUS.cutting;
   const cur = CURRENT[stage] ?? 'qtyCut';
@@ -106,6 +128,7 @@ export default function StageQtyDialog({
     setQty(seeded);
     setAlter({});
     setTailorId(batch.tailorId ?? '');
+    setOverflows([]);
   }, [open, batch, prev.key, cur]);
 
   const total = useMemo(() => Object.values(qty).reduce((a, b) => a + b, 0), [qty]);
@@ -113,35 +136,43 @@ export default function StageQtyDialog({
   if (!batch) return null;
 
   // You cannot stitch more than was cut, or finish more than was stitched — the
-  // previous figure is physical output, so the excess is unenterable rather than
-  // merely flagged. Cutting is deliberately exempt: its "previous" is the PLAN,
-  // and cutting a few pieces over plan is a real thing that happens on the floor.
+  // previous figure is physical output. Cutting is deliberately exempt: its
+  // "previous" is the PLAN, and cutting over plan happens on the floor.
   const capped = stage !== 'cutting';
-  const maxFor = (s: BatchSizeLine): number =>
-    capped ? outstanding(s, prev.key, cur) : Number.POSITIVE_INFINITY;
 
-  const set = (sku: string, raw: string, max: number) => {
-    const next = Math.min(max, Math.max(0, Number.parseInt(raw, 10) || 0));
-    setQty((p) => ({ ...p, [sku]: next }));
-    // Clamping only the field being edited let the PAIR drift over the cap:
-    // enter 10 to alteration, then raise finishing, and the stale 10 rides along
-    // into a payload the server rejects. Reconcile the other side here.
-    if (splits) {
-      setAlter((p) => {
-        const room = Math.max(0, max - next);
-        return (p[sku] ?? 0) > room ? { ...p, [sku]: room } : p;
-      });
-    }
-  };
+  // What this move may commit for a size: the pieces that exist, less the ones
+  // already out for rework. Same arithmetic the server bounds alteration by.
+  const roomFor = (s: BatchSizeLine): number =>
+    capped
+      ? Math.max(0, ceiling(s, prev.key, cur) - s.qtyAltered)
+      : Number.POSITIVE_INFINITY;
 
+  // Typed numbers are taken as typed. Over-entry is reported when the stage
+  // button is pressed — silently clamping to the cap swallowed the keystroke and
+  // left the operator with no idea why the box would not take their number.
+  const set = (sku: string, raw: string) =>
+    setQty((p) => ({ ...p, [sku]: Math.max(0, Number.parseInt(raw, 10) || 0) }));
+
+  // Offered on any finishing entry — inspection is what sends pieces back, and
+  // that is when finishing is recorded, not when the lot changes stage.
   const splits = stage === 'finishing';
   const alterTotal = Object.values(alter).reduce((a, b) => a + b, 0);
-  // Finishing + alteration cannot exceed what stitching passed on.
-  const setAlterFor = (sku: string, raw: string, max: number) =>
-    setAlter((p) => ({
-      ...p,
-      [sku]: Math.min(max, Math.max(0, Number.parseInt(raw, 10) || 0)),
-    }));
+  const setAlterFor = (sku: string, raw: string) =>
+    setAlter((p) => ({ ...p, [sku]: Math.max(0, Number.parseInt(raw, 10) || 0) }));
+
+  // A piece can go to finishing or back for alteration, never both, so the two
+  // boxes are checked against one shared ceiling.
+  const findOverflows = (): Overflow[] =>
+    capped
+      ? batch.sizes.flatMap((s) => {
+          const entered = (qty[s.sku] ?? 0) + (splits ? (alter[s.sku] ?? 0) : 0);
+          const limit = roomFor(s);
+          return entered > limit ? [{ size: s.size, entered, limit }] : [];
+        })
+      : [];
+
+  const overSizes = new Set(overflows.map((o) => o.size));
+  const words = OVER_WORDS[stage];
 
   const verb = STAGE_VERB[stage] ?? stage;
   // Anything already banked at this stage — shown as its own column, and what
@@ -181,7 +212,10 @@ export default function StageQtyDialog({
           <Button
             size="sm"
             disabled={busy || !canSubmit}
-            onClick={() =>
+            onClick={() => {
+              const over = findOverflows();
+              setOverflows(over);
+              if (over.length > 0) return;
               onConfirm(
                 batch.sizes.map((s) => ({
                   sku: s.sku,
@@ -193,8 +227,8 @@ export default function StageQtyDialog({
                 askTailor
                   ? { tailorId: tailorId === '' ? undefined : tailorId }
                   : undefined,
-              )
-            }
+              );
+            }}
           >
             <Factory size={14} />
             <span className="ml-1">
@@ -255,7 +289,7 @@ export default function StageQtyDialog({
                 </th>
               )}
               <th className="py-2 text-right font-semibold">
-                {t('admin.production.stage.delta', { defaultValue: 'Diff' })}
+                {t('admin.production.stage.leftAfter', { defaultValue: 'Left after' })}
               </th>
             </tr>
           </thead>
@@ -263,9 +297,12 @@ export default function StageQtyDialog({
             {batch.sizes.map((s) => {
               const before = s[prev.key] ?? 0;
               const already = s[cur] ?? 0;
-              // Compares this stage's TOTAL after the entry (not just the entry)
-              // against the step before it — otherwise a top-up always reads short.
-              const delta = already + (qty[s.sku] ?? 0) - before;
+              // What is still owed to this stage once this entry lands — the
+              // consequence of what you just typed, rather than a delta you have
+              // to reason backwards from. Red is driven by the submit check, not
+              // by the sign: after a rework round `already` can exceed what was
+              // outstanding, and a negative there is honest, not an error.
+              const left = outstanding(s, prev.key, cur) - (qty[s.sku] ?? 0) - (alter[s.sku] ?? 0);
               return (
                 <tr key={s.sku} className="border-b border-[var(--color-border)]/60">
                   <td className="py-2 pr-3 font-semibold">{s.size}</td>
@@ -281,12 +318,13 @@ export default function StageQtyDialog({
                     <Input
                       type="number"
                       min={0}
-                      max={Number.isFinite(maxFor(s)) ? maxFor(s) : undefined}
                       inputMode="numeric"
-                      className="h-9 w-24 text-center text-sm font-semibold"
+                      className={`h-9 w-24 text-center text-sm font-semibold${
+                        overSizes.has(s.size) ? ' border-red-400 bg-red-50' : ''
+                      }`}
                       value={qty[s.sku] === 0 ? '' : String(qty[s.sku] ?? '')}
                       placeholder="0"
-                      onChange={(e) => set(s.sku, e.target.value, maxFor(s))}
+                      onChange={(e) => set(s.sku, e.target.value)}
                       aria-label={t('admin.production.send.qtyFor', {
                         defaultValue: 'Quantity for size {{size}}',
                         size: s.size,
@@ -298,15 +336,13 @@ export default function StageQtyDialog({
                       <Input
                         type="number"
                         min={0}
-                        // Finishing + alteration can't exceed what stitching passed on.
-                        max={Math.max(0, maxFor(s) - (qty[s.sku] ?? 0))}
                         inputMode="numeric"
-                        className="h-9 w-24 text-center text-sm font-semibold"
+                        className={`h-9 w-24 text-center text-sm font-semibold${
+                          overSizes.has(s.size) ? ' border-red-400 bg-red-50' : ''
+                        }`}
                         value={alter[s.sku] === 0 ? '' : String(alter[s.sku] ?? '')}
                         placeholder="0"
-                        onChange={(e) =>
-                          setAlterFor(s.sku, e.target.value, Math.max(0, maxFor(s) - (qty[s.sku] ?? 0)))
-                        }
+                        onChange={(e) => setAlterFor(s.sku, e.target.value)}
                         aria-label={t('admin.production.stage.alterFor', {
                           defaultValue: 'To alteration, size {{size}}',
                           size: s.size,
@@ -315,17 +351,17 @@ export default function StageQtyDialog({
                     </td>
                   )}
                   <td className="py-2 text-right">
-                    {delta === 0 ? (
+                    {left === 0 ? (
                       <span className="text-[var(--color-muted-foreground)]">—</span>
                     ) : (
                       <span
-                        className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${
-                          delta < 0
-                            ? 'bg-amber-50 text-amber-700'
-                            : 'bg-emerald-50 text-emerald-700'
+                        className={`text-sm font-semibold ${
+                          overSizes.has(s.size)
+                            ? 'text-red-700'
+                            : 'text-[var(--color-muted-foreground)]'
                         }`}
                       >
-                        {delta > 0 ? `+${delta}` : delta}
+                        {left}
                       </span>
                     )}
                   </td>
@@ -335,6 +371,38 @@ export default function StageQtyDialog({
           </tbody>
         </table>
       </div>
+
+      {overflows.length > 0 && words && (
+        <div className="mt-4 rounded-[var(--radius-sm)] border border-red-300 bg-red-50 px-3 py-2.5">
+          <div className="text-sm font-semibold text-red-800">
+            {t('admin.production.stage.overTitle', {
+              defaultValue: 'More than were {{prev}}',
+              prev: prev.label.toLowerCase(),
+            })}
+          </div>
+          <ul className="mt-1 space-y-0.5 text-sm text-red-700">
+            {overflows.map((o) => (
+              <li key={o.size}>
+                {t('admin.production.stage.overLine', {
+                  defaultValue: '{{size}} — {{entered}} entered, {{limit}} {{prev}}',
+                  size: o.size,
+                  entered: o.entered,
+                  limit: o.limit,
+                  prev: prev.label.toLowerCase(),
+                })}
+              </li>
+            ))}
+          </ul>
+          <div className="mt-1.5 text-sm text-red-700">
+            {t('admin.production.stage.overHint', {
+              defaultValue:
+                "You can't {{action}} more pieces than {{from}} passed on. Lower these numbers and try again.",
+              action: words.action,
+              from: words.from,
+            })}
+          </div>
+        </div>
+      )}
     </Dialog>
   );
 }
