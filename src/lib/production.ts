@@ -27,6 +27,51 @@ export function outstandingAlteration(b: { sizes: { qtyAltered: number }[] }): n
   return b.sizes.reduce((n, s) => n + outstandingAlterationFor(s), 0);
 }
 
+/**
+ * Each floor stage and the figure it answers to.
+ *
+ * CUTTING IS ABSENT, deliberately. `sendToProduction` writes the cutting
+ * entries in the same transaction that puts the lot on the floor, seeded with
+ * the plan — so a lot reads "all cut" the second it is sent, before anyone has
+ * touched the cloth. Stitched and finished are recorded AS THE WORK COMPLETES;
+ * cut is recorded on the way IN. Only the first kind can say a stage is done.
+ */
+const STAGE_PAIR: Partial<
+  Record<BatchStatus, { prev: 'qtyPlanned' | 'qtyCut' | 'qtyStitched'; cur: 'qtyCut' | 'qtyStitched' | 'qtyFinished' }>
+> = {
+  stitching: { prev: 'qtyCut', cur: 'qtyStitched' },
+  finishing: { prev: 'qtyStitched', cur: 'qtyFinished' },
+};
+
+/**
+ * Has the stage this lot sits in taken everything the stage before it passed on?
+ *
+ * Derived, never stored. The counters already carry the answer, and a stored
+ * "stitching done" flag could contradict them — say it to read done while the
+ * numbers show 40 of 51. Scrapped pieces count as accounted for at finishing:
+ * they left the lot at alteration and are never coming back to it.
+ *
+ * Always false in cutting — see {@link STAGE_PAIR}. There, the only signal that
+ * the work is finished is somebody moving the lot on.
+ */
+export function stageComplete(b: {
+  status: BatchStatus;
+  sizes: { qtyPlanned: number; qtyCut: number; qtyStitched: number; qtyFinished: number; qtyScrapped: number }[];
+}): boolean {
+  const pair = STAGE_PAIR[b.status];
+  if (!pair || b.sizes.length === 0) return false;
+  return b.sizes.every((s) => {
+    const done = s[pair.cur] + (pair.cur === 'qtyFinished' ? s.qtyScrapped : 0);
+    return s[pair.prev] > 0 && done >= s[pair.prev];
+  });
+}
+
+/** The stage a finished-here lot is waiting to move to. Null at finishing —
+ *  what follows it is completion, which has its own action. */
+export function nextStage(status: BatchStatus): BatchStatus | null {
+  return status === 'cutting' ? 'stitching' : status === 'stitching' ? 'finishing' : null;
+}
+
 const FLOOR_STAGE_LABEL: Partial<Record<BatchStatus, string>> = {
   cutting: 'In cutting',
   stitching: 'In stitching',
