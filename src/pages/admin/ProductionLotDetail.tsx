@@ -140,6 +140,10 @@ export default function ProductionLotDetail() {
       setEditOpen(false);
       toast.show(t('common.saved', { defaultValue: 'Saved.' }));
     } catch {
+      // These are three separate calls, so a failure part-way leaves some of the
+      // edit applied. Re-read either way, or the page keeps showing figures the
+      // server no longer holds.
+      await reload().catch(() => undefined);
       toast.show(t('common.error', { defaultValue: 'Something went wrong.' }), 'error');
     } finally {
       setSaving(false);
