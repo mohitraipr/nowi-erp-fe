@@ -56,7 +56,9 @@ import {
   cleanName,
   coverTone,
   meaningfulName,
+  nextStage,
   outstandingAlteration,
+  stageComplete,
   statusLabel,
 } from '@/lib/production';
 import { UrgencyPill } from '@/pages/admin/InventoryHealth';
@@ -89,8 +91,7 @@ const FABRIC_TONE: Record<FabricStatus, string> = {
 const PAGE_SIZE = 50;
 
 /** Floor stage order, for direction only. Alteration is absent on purpose: it is
- *  a quantity recorded during the stitching → finishing move, never a stage the
- *  lot moves INTO. */
+ *  a quantity recorded on a finishing entry, never a stage the lot moves INTO. */
 const STAGE_SEQUENCE: BatchStatus[] = ['planning', 'cutting', 'stitching', 'finishing'];
 
 /** Is this move going forward down the floor? Unknown stages count as forward,
@@ -224,6 +225,9 @@ export default function Production() {
   const [stageTarget, setStageTarget] = useState<{ batch: ProductionBatch; status: BatchStatus } | null>(null);
   const [cancelTarget, setCancelTarget] = useState<ProductionBatch | null>(null);
   const [alterTarget, setAlterTarget] = useState<ProductionBatch | null>(null);
+  const [backTarget, setBackTarget] = useState<{ batch: ProductionBatch; status: BatchStatus } | null>(
+    null,
+  );
   const [dropTarget, setDropTarget] = useState<InventoryStyle | null>(null);
   // Completed-tab multi-select → the one place a challan is built. Keyed
   // per-size (`${batchId}:${sku}`) so a challan can ship a subset of a batch's
@@ -811,14 +815,14 @@ export default function Production() {
           onToggleLot={toggleLot}
           onToggleAll={toggleAllLots}
           onStage={(b, status) => {
-            // Ask "how many?" on a FORWARD move into a stage that records a
-            // quantity. Going back is a correction — the pieces did not travel
-            // again, so a dialog there would seed forward-oriented numbers and
-            // append them, double-counting work already recorded.
-            if (STAGE_DONE[status] !== undefined && isForward(b.status, status)) {
+            // Recording a quantity — into the stage the lot is in, or the one it
+            // is moving to. The server appends either way.
+            if (status === b.status || isForward(b.status, status)) {
               setStageTarget({ batch: b, status });
             } else {
-              void runAction(() => advanceBatch(b.id, status));
+              // Going back records nothing and undoes nothing, which is exactly
+              // why it needs saying out loud before it happens.
+              setBackTarget({ batch: b, status });
             }
           }}
           onComplete={(b) => setOutputTarget(b)}
@@ -885,6 +889,39 @@ export default function Production() {
         batches={selectedBatches}
         onClose={() => setBuilderOpen(false)}
         onConfirm={onCreateDispatch}
+      />
+      {/* Going back is a status correction and nothing else: no quantity is
+          recorded, and none of the recorded work is undone. Said out loud,
+          because the numbers staying put surprises people. */}
+      <ConfirmDialog
+        open={backTarget !== null}
+        title={t('admin.production.moveBack.title', { defaultValue: 'Move this lot back?' })}
+        message={(() => {
+          if (!backTarget) return '';
+          const at = stageTotal(backTarget.batch);
+          const to = statusLabel(t, backTarget.status);
+          return at
+            ? t('admin.production.moveBack.recorded', {
+                defaultValue:
+                  '{{qty}} {{label}} is already recorded. Moving back does not undo that — the lot will simply show as {{to}}.',
+                qty: at.qty,
+                label: at.label,
+                to,
+              })
+            : t('admin.production.moveBack.plain', {
+                defaultValue:
+                  'Nothing is recorded or undone by this — the lot will simply show as {{to}}.',
+                to,
+              });
+        })()}
+        confirmLabel={t('admin.production.moveBack.cta', { defaultValue: 'Move back' })}
+        cancelLabel={t('common.cancel', { defaultValue: 'Cancel' })}
+        onCancel={() => setBackTarget(null)}
+        onConfirm={() => {
+          const target = backTarget;
+          setBackTarget(null);
+          if (target) void runAction(() => advanceBatch(target.batch.id, target.status));
+        }}
       />
       <AlterationReturnDialog
         open={alterTarget !== null}
@@ -1516,8 +1553,19 @@ function BatchTable({
           return (
             <>
               <span className="font-semibold">{at.qty}</span>
-              <div className="mt-0.5 text-[11px] text-[var(--color-muted-foreground)]">
-                {t(`admin.production.stageDone.${b.status}`, { defaultValue: at.label })}
+              <div
+                className={`mt-0.5 text-[11px] ${
+                  stageComplete(b)
+                    ? 'font-semibold text-emerald-700'
+                    : 'text-[var(--color-muted-foreground)]'
+                }`}
+              >
+                {stageComplete(b) && nextStage(b.status)
+                  ? t('admin.production.readyFor', {
+                      defaultValue: 'ready for {{stage}}',
+                      stage: nextStage(b.status),
+                    })
+                  : t(`admin.production.stageDone.${b.status}`, { defaultValue: at.label })}
               </div>
             </>
           );
@@ -1535,12 +1583,21 @@ function BatchTable({
         // may already have been built from. Badge only — the chip is its action.
         canWrite && tab === 'in_production' && b.status !== 'completed' ? (
           <select
-            value={b.status}
+            value=""
             disabled={busy}
             onClick={stopRowClick}
-            onChange={(e) => onStage(b, e.target.value as BatchStatus)}
+            onChange={(e) => {
+              if (e.target.value) onStage(b, e.target.value as BatchStatus);
+            }}
             className="h-8 w-full rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-white px-2 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"
           >
+            {/* Hidden, so it is what the closed select DISPLAYS without also
+                appearing in the list. The select never holds a stage as its
+                value: picking the stage the lot is already in has to stay a real
+                change, or the browser fires nothing at all. */}
+            <option value="" hidden>
+              {statusLabel(t, b.status)}
+            </option>
             {/* Sourced from ADVANCEABLE_STATUSES rather than a literal list, so
                 the dropdown and the server's accepted set can't drift. */}
             {ADVANCEABLE_STATUSES.filter((s) => s !== 'dispatched').map((s) => (
