@@ -30,20 +30,34 @@ export default function LotStageStepper({ lot }: { lot: ProductionBatch }) {
   // started, so past-the-floor is named explicitly rather than inferred.
   const at = ORDER.indexOf(lot.status);
   const pastFloor = ['completed', 'dispatched'].includes(lot.status);
+  // Two different questions per stage. `value` is cumulative — everything that
+  // has ever passed through here. `here` is what is sitting at the station right
+  // now: a piece stays IN a stage until the next one takes it.
+  //
+  // Clamped at zero. `finished` is cumulative and counts a piece twice if it
+  // goes round again through alteration, so after a rework cycle the raw
+  // subtraction can go negative — and "-3 in stitching" reads as a fault.
   const steps = [
-    { key: 'cutting', value: cut, label: 'cut', ready: 0 },
+    {
+      key: 'cutting',
+      value: cut,
+      label: 'cut',
+      here: Math.max(0, cut - stitched),
+    },
     {
       key: 'stitching',
       value: stitched,
       label: 'stitched',
-      ready: Math.max(0, cut - stitched),
+      // Pieces out for rework are at the tailor, not at the stitching station.
+      here: Math.max(0, stitched - scrapped - altered - finished),
     },
     {
       key: 'finishing',
       value: finished,
       label: 'finished',
-      // Pieces out for rework are not waiting at finishing — they are at the tailor.
-      ready: Math.max(0, stitched - scrapped - altered - finished),
+      // Nothing leaves finishing except closing the lot, so everything finished
+      // is still here until then — and none of it is, once the lot is closed.
+      here: pastFloor ? 0 : finished,
     },
   ];
 
@@ -81,11 +95,15 @@ export default function LotStageStepper({ lot }: { lot: ProductionBatch }) {
                     label: step.label,
                   })}
                 </div>
-                {step.ready > 0 && (
+                {/* Shown whenever there is anything here, even when it equals
+                    the cumulative figure — that they match is itself the news:
+                    nothing has moved on yet. */}
+                {step.here > 0 && (
                   <div className="whitespace-nowrap text-[12px] font-semibold text-emerald-700">
-                    {t('admin.production.lot.stepReady', {
-                      defaultValue: '{{n}} ready',
-                      n: step.ready,
+                    {t(`admin.production.lot.stepHere.${step.key}`, {
+                      defaultValue: '{{n}} in {{stage}}',
+                      n: step.here,
+                      stage: step.key,
                     })}
                   </div>
                 )}
