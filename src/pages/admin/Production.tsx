@@ -56,9 +56,7 @@ import {
   cleanName,
   coverTone,
   meaningfulName,
-  nextStage,
   outstandingAlteration,
-  stageComplete,
   statusLabel,
 } from '@/lib/production';
 import { UrgencyPill } from '@/pages/admin/InventoryHealth';
@@ -1533,43 +1531,17 @@ function BatchTable({
       cell: (b) => <span className="font-semibold">{b.qtyPlanned}</span>,
     });
 
-    // Nothing to show while a lot is still in the pipeline: no stage entries
-    // exist yet, so this only ever rendered a dash.
-    if (tab !== 'planning') {
+    // Produced only, and only where it means something. The stage figure this
+    // column used to carry is cumulative — "how much has ever passed through" —
+    // which is not what anyone reads a board for. What is actually AT each stage
+    // now lives on the lot page, where there is room to show it per stage.
+    if (tab === 'completed') {
       cols.push({
-        key: 'atStage',
+        key: 'produced',
         width: '96px',
         align: 'right',
-        header:
-          tab === 'completed'
-            ? t('admin.production.produced', { defaultValue: 'Produced' })
-            : t('admin.production.atStage', { defaultValue: 'At stage' }),
-        cell: (b) => {
-          if (tab === 'completed') return b.qtyProduced ?? '—';
-          // "—" while the lot is still in Planning, and for lots that ran before
-          // stage entries existed — there is nothing recorded to show.
-          const at = stageTotal(b);
-          if (!at) return <span className="text-[var(--color-muted-foreground)]">—</span>;
-          return (
-            <>
-              <span className="font-semibold">{at.qty}</span>
-              <div
-                className={`mt-0.5 text-[11px] ${
-                  stageComplete(b)
-                    ? 'font-semibold text-emerald-700'
-                    : 'text-[var(--color-muted-foreground)]'
-                }`}
-              >
-                {stageComplete(b) && nextStage(b.status)
-                  ? t('admin.production.readyFor', {
-                      defaultValue: 'ready for {{stage}}',
-                      stage: nextStage(b.status),
-                    })
-                  : t(`admin.production.stageDone.${b.status}`, { defaultValue: at.label })}
-              </div>
-            </>
-          );
-        },
+        header: t('admin.production.produced', { defaultValue: 'Produced' }),
+        cell: (b) => b.qtyProduced ?? '—',
       });
     }
 

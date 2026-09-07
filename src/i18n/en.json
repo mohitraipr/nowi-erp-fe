@@ -378,9 +378,8 @@
       "styleCount": "{{n}} styles",
       "sizesAtRiskN": "{{n}} at risk",
       "chip": {
-        "out": "Out of stock",
-        "critical": "Critical",
-        "watch": "Watch"
+        "cut": "Cut size",
+        "out": "Out of stock"
       },
       "inv": {
         "all": "All stock",
@@ -389,6 +388,7 @@
       },
       "tab": {
         "all": "All styles",
+        "cut": "Cut size",
         "out": "Out of stock",
         "critical": "Critical",
         "watch": "Watch",

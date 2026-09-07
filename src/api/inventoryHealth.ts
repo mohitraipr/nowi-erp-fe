@@ -10,8 +10,9 @@ export type Urgency = 'out' | 'critical' | 'watch' | 'healthy';
  *  `slow` = stocked, idle 30d but sold within 60d; `active` = sold within 30d. */
 export type Aging = 'active' | 'slow' | 'dead';
 
-/** Every list lens the server accepts: urgency tiers + aging + new arrivals. */
-export type FilterKey = 'all' | 'out' | 'critical' | 'watch' | 'slow' | 'dead' | 'new';
+/** Every list lens the server accepts: urgency tiers + aging + new arrivals.
+ *  `out` = every size gone; `cut` = only some (a broken size ladder). */
+export type FilterKey = 'all' | 'out' | 'cut' | 'critical' | 'watch' | 'slow' | 'dead' | 'new';
 
 /** One size row (per SKU). */
 export interface InventorySize {
@@ -70,7 +71,10 @@ export interface InventoryStyle {
 export interface InventoryKpis {
   unitsToMake: number;
   needsAction: number;
+  /** Every size gone — nothing of the style is sellable. */
   outOfStock: number;
+  /** Some sizes gone, some still sellable. */
+  cutSize: number;
   critical: number;
   watch: number;
   healthy: number;

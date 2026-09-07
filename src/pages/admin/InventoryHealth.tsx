@@ -534,6 +534,7 @@ export default function InventoryHealth(): ReactNode {
   const lensTabs: QueueTab<FilterKey>[] = kpis
     ? [
         { key: 'all', label: t('admin.inventoryHealth.tab.all', { defaultValue: 'All styles' }), count: kpis.totalStyles },
+        { key: 'cut', label: t('admin.inventoryHealth.tab.cut', { defaultValue: 'Cut size' }), count: kpis.cutSize },
         { key: 'out', label: t('admin.inventoryHealth.tab.out', { defaultValue: 'Out of stock' }), count: kpis.outOfStock },
         { key: 'critical', label: t('admin.inventoryHealth.tab.critical', { defaultValue: 'Critical' }), count: kpis.critical },
         { key: 'watch', label: t('admin.inventoryHealth.tab.watch', { defaultValue: 'Watch' }), count: kpis.watch },
@@ -691,32 +692,25 @@ export default function InventoryHealth(): ReactNode {
           </>
         ) : kpis ? (
           <>
-            {/* KPI cards — the three urgency cards double as filters (click to
+            {/* KPI cards — the two stock-gap cards double as filters (click to
                 toggle, in sync with the lens tabs below); "To make" is the roll-up.
-                Counts are scoped to the Real/Virtual view like the tabs. */}
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                Critical/Watch stay tabs-only: they forecast a stockout, while these
+                two report one that already happened. Counts follow Real/Virtual. */}
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <StatCard
+                label={t('admin.inventoryHealth.chip.cut', { defaultValue: 'Cut size' })}
+                value={kpis.cutSize}
+                dot={AMBER}
+                active={filter === 'cut'}
+                onClick={() => setFilter(filter === 'cut' ? 'all' : 'cut')}
+                t={t}
+              />
               <StatCard
                 label={t('admin.inventoryHealth.chip.out', { defaultValue: 'Out of stock' })}
                 value={kpis.outOfStock}
                 dot={RED}
                 active={filter === 'out'}
                 onClick={() => setFilter(filter === 'out' ? 'all' : 'out')}
-                t={t}
-              />
-              <StatCard
-                label={t('admin.inventoryHealth.chip.critical', { defaultValue: 'Critical' })}
-                value={kpis.critical}
-                dot={RED}
-                active={filter === 'critical'}
-                onClick={() => setFilter(filter === 'critical' ? 'all' : 'critical')}
-                t={t}
-              />
-              <StatCard
-                label={t('admin.inventoryHealth.chip.watch', { defaultValue: 'Watch' })}
-                value={kpis.watch}
-                dot={AMBER}
-                active={filter === 'watch'}
-                onClick={() => setFilter(filter === 'watch' ? 'all' : 'watch')}
                 t={t}
               />
               <StatCard
