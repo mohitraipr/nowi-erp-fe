@@ -62,7 +62,13 @@ export default function FabricDetail() {
   const [editOpen, setEditOpen] = useState(false);
 
   const load = useCallback(async () => {
-    if (!Number.isFinite(fabricId)) return;
+    if (!Number.isFinite(fabricId)) {
+      // Resolve to "not found" — returning early would leave the initial
+      // loading:true in place and the page on its skeleton forever.
+      setFabric(null);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const [f, ledger] = await Promise.all([

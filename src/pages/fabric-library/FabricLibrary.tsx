@@ -119,7 +119,9 @@ export default function FabricLibrary() {
       return;
     }
     setStockSaving(true);
-    const today = new Date().toISOString().slice(0, 10);
+    // Local calendar date — toISOString() is UTC, which stamps an issue made
+    // before 05:30 IST with yesterday's date.
+    const today = new Date().toLocaleDateString('en-CA');
     try {
       // Reducing stock is an OUT challan (cap-checked server-side).
       await createFabricChallan({

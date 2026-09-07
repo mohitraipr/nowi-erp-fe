@@ -509,8 +509,21 @@ export default function ReceiveFabricChallan() {
           onSaved={(created) => {
             if (created) {
               setFabrics((fs) => [...fs, created]);
-              if (fabricForKey != null)
-                chooseFabric(fabricForKey, created.id, created);
+              // Selecting a fabric with no colour child would strand the line:
+              // stock lives on the colour, and the list marks such fabrics
+              // unselectable for exactly that reason. Say so instead.
+              if (fabricForKey != null) {
+                if (created.colours?.length) {
+                  chooseFabric(fabricForKey, created.id, created);
+                } else {
+                  toast.show(
+                    t('admin.fabricChallan.createdWithoutColour', {
+                      defaultValue:
+                        'Fabric added. Give it a colour before stocking it.',
+                    }),
+                  );
+                }
+              }
             }
             setFabricForKey(null);
             setFabricSeed('');
