@@ -87,18 +87,21 @@ export default function LotStageStepper({ lot }: { lot: ProductionBatch }) {
                     holds || done || here ? '' : 'text-[var(--color-muted-foreground)]'
                   }`}
                 >
-                  {holds
-                    ? t(`admin.production.lot.stepPending.${step.key}`, {
-                        defaultValue: '{{n}} {{label}} · {{p}} pending',
-                        n: step.value,
-                        label: step.label,
+                  {t(`admin.production.lot.stepValue.${step.key}`, {
+                    defaultValue: '{{n}} {{label}}',
+                    n: step.value,
+                    label: step.label,
+                  })}
+                  {/* Its own span so the outstanding half carries the amber —
+                      the moved-on half is not a warning. */}
+                  {holds && (
+                    <span className="ml-1 font-semibold text-amber-700">
+                      {t('admin.production.lot.stepPending', {
+                        defaultValue: '· {{p}} pending',
                         p: step.pending,
-                      })
-                    : t(`admin.production.lot.stepValue.${step.key}`, {
-                        defaultValue: '{{n}} {{label}}',
-                        n: step.value,
-                        label: step.label,
                       })}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>

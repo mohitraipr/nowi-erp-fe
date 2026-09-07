@@ -242,8 +242,10 @@ export default function ProductionLotDetail() {
   const cell = (stage: 'cutting' | 'stitching' | 'finishing', reached: number, still: number) => (
     <>
       <div>{stageCell(stage, reached - still)}</div>
+      {/* Amber, not green: pending is work outstanding, and it reads as the same
+          kind of signal as the alteration chip. */}
       {still > 0 && (
-        <div className="text-[11px] font-semibold text-emerald-700">
+        <div className="text-[11px] font-semibold text-amber-700">
           {t('admin.production.lot.pendingNow', { defaultValue: '{{n}} pending', n: still })}
         </div>
       )}
@@ -361,7 +363,7 @@ export default function ProductionLotDetail() {
                     </td>
                     <td
                       className={`py-2 pr-3 text-right font-semibold ${
-                        recorded.has('finishing')
+                        s.qtyFinished - pending.finishing(s) > 0
                           ? 'text-emerald-700'
                           : 'text-[var(--color-muted-foreground)]'
                       }`}
@@ -399,7 +401,7 @@ export default function ProductionLotDetail() {
                   </td>
                   <td
                     className={`py-2 pr-3 text-right ${
-                      recorded.has('finishing')
+                      (pastFloor ? totals.finished : 0) > 0
                         ? 'text-emerald-700'
                         : 'text-[var(--color-muted-foreground)]'
                     }`}
