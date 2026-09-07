@@ -5,14 +5,17 @@ import { ArrowLeft, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { Dialog } from '@/components/ui/dialog';
+import { Combobox } from '@/components/ui/combobox';
+import FabricEditorForm from '@/components/fabrics/FabricEditorForm';
 import { useToast } from '@/components/ui/toast';
-import FabricPicker from '@/components/styles/intake/FabricPicker';
 import { listFabrics } from '@/api/styles';
 import { createFabricChallan } from '@/api/fabricChallans';
-import { listVendors } from '@/api/vendors';
+import { createVendor, listVendors } from '@/api/vendors';
 import type { Fabric, FabricUnitOfMeasure, Vendor } from '@/api/types';
+import { useAuth } from '@/context/auth';
+import { hasAnyRole } from '@/lib/userRoles';
 
 const UOM_SHORT: Record<FabricUnitOfMeasure, string> = {
   meter: 'm',
@@ -57,9 +60,19 @@ export default function ReceiveFabricChallan() {
     challanNo: '',
     challanDate: todayIso(),
     vendorId: '' as number | '',
-    supplier: '',
     note: '',
   });
+  const { user } = useAuth();
+  // Creating a vendor is gated to admin / production_lead on the server, so
+  // only offer the quick-add to roles that would not get a 403.
+  const canAddVendor = hasAnyRole(user, ['admin', 'production_lead']);
+  const [fabricSeed, setFabricSeed] = useState('');
+  const [fabricForKey, setFabricForKey] = useState<number | null>(null);
+  const [vendorName, setVendorName] = useState('');
+  const [vendorOpen, setVendorOpen] = useState(false);
+  const [vendorSaving, setVendorSaving] = useState(false);
+  const vendorRef = useRef<HTMLInputElement>(null);
+
   const nextKey = useRef(2);
   const [lines, setLines] = useState<LineRow[]>([emptyLine(1)]);
   const [saving, setSaving] = useState(false);
@@ -81,6 +94,58 @@ export default function ReceiveFabricChallan() {
     () => new Map(fabrics.map((f) => [f.id, f])),
     [fabrics],
   );
+
+  /**
+   * Fabric options. Stock lives on the colour child, so a fabric with no
+   * colours has nowhere to put it — those are listed but not selectable,
+   * with the reason inline rather than a silent rejection at submit.
+   */
+  const fabricOptions = useMemo(
+    () =>
+      fabrics.map((f) => {
+        const colours = f.colours?.length ?? 0;
+        return {
+          value: f.id,
+          label: f.name,
+          // Just the fabric's own identity — the colour is the next dropdown's
+          // job. The only sublabel worth adding is why a row can't be picked.
+          sublabel: colours
+            ? (f.code ?? undefined)
+            : t('admin.fabricChallan.noColours', {
+                defaultValue: 'Add a colour first',
+              }),
+          disabled: colours === 0,
+          searchText: `${f.name} ${f.code ?? ''}`,
+        };
+      }),
+    [fabrics, t],
+  );
+
+  /** Colour options for the fabric chosen on this line. */
+  const colourOptionsFor = (fabricId: number | null) => {
+    const f = fabricId != null ? fabricById.get(fabricId) : undefined;
+    const uom = f?.unitOfMeasure ? UOM_SHORT[f.unitOfMeasure] : '';
+    return (f?.colours ?? []).map((c) => ({
+      value: c.id,
+      label: c.name,
+      sublabel: [
+        c.code,
+        c.availableQuantity != null
+          ? `${c.availableQuantity}${uom ? ` ${uom}` : ''} in stock`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(' · '),
+      searchText: `${c.name} ${c.code ?? ''}`,
+    }));
+  };
+
+  /** Picking a fabric preselects its colour when there is exactly one. */
+  const chooseFabric = (key: number, fabricId: number | null) => {
+    const f = fabricId != null ? fabricById.get(fabricId) : undefined;
+    const only = f?.colours?.length === 1 ? f.colours[0].id : null;
+    patchLine(key, { fabricId, fabricColourId: only });
+  };
 
   const addLine = () => {
     setLines((ls) => [...ls, emptyLine(nextKey.current++)]);
@@ -108,13 +173,36 @@ export default function ReceiveFabricChallan() {
   const headerReady =
     header.challanNo.trim() !== '' &&
     header.challanDate !== '' &&
-    header.supplier.trim() !== '';
+    header.vendorId !== '';
 
   const canSubmit = headerReady && lines.every(lineReady) && !saving;
 
   const uomFor = (fabricId: number | null): string => {
     const f = fabricId != null ? fabricById.get(fabricId) : undefined;
     return f?.unitOfMeasure ? UOM_SHORT[f.unitOfMeasure] : '';
+  };
+
+  /** Quick-add a supplier: create it, merge into the list, select it. */
+  const submitVendor = async () => {
+    const name = vendorName.trim();
+    if (!name) return;
+    setVendorSaving(true);
+    try {
+      const v = await createVendor(name);
+      setVendors((vs) => [...vs, v].sort((a, b) => a.name.localeCompare(b.name)));
+      setHeader((h) => ({ ...h, vendorId: Number(v.id) }));
+      setVendorOpen(false);
+      setVendorName('');
+    } catch {
+      toast.show(
+        t('admin.fabricChallan.addVendorError', {
+          defaultValue: 'Could not add that supplier.',
+        }),
+        'error',
+      );
+    } finally {
+      setVendorSaving(false);
+    }
   };
 
   const submit = async () => {
@@ -126,7 +214,6 @@ export default function ReceiveFabricChallan() {
         challanNo: header.challanNo.trim(),
         challanDate: header.challanDate,
         vendorId: header.vendorId === '' ? null : header.vendorId,
-        supplier: header.supplier.trim(),
         note: header.note.trim() || null,
         lines: lines.map((l) => ({
           fabricColourId: l.fabricColourId as number,
@@ -165,7 +252,7 @@ export default function ReceiveFabricChallan() {
       </button>
 
       <div>
-        <h1 className="font-serif text-2xl text-[var(--color-primary)]">
+        <h1 className="font-serif text-2xl font-semibold tracking-tight">
           {t('admin.fabricChallan.title', { defaultValue: 'Receive fabric' })}
         </h1>
         <p className="text-sm text-[var(--color-muted-foreground)] mt-1">
@@ -207,44 +294,32 @@ export default function ReceiveFabricChallan() {
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="vendor">
-            {t('admin.fabricChallan.vendor', { defaultValue: 'Vendor' })}
+            {t('admin.fabricChallan.vendor', { defaultValue: 'Supplier' })}
           </Label>
-          <Select
-            id="vendor"
-            value={header.vendorId === '' ? '' : String(header.vendorId)}
-            onChange={(e) => {
-              const id = e.target.value ? Number(e.target.value) : '';
-              const v =
-                id === '' ? undefined : vendors.find((x) => Number(x.id) === id);
-              // Convenience: default the free-text supplier to the vendor's name.
-              setHeader((h) => ({
-                ...h,
-                vendorId: id,
-                supplier: v && !h.supplier.trim() ? v.name : h.supplier,
-              }));
-            }}
-          >
-            <option value="">
-              {t('admin.fabricChallan.vendorNone', { defaultValue: 'Choose a vendor…' })}
-            </option>
-            {vendors.map((v) => (
-              <option key={v.id} value={String(v.id)}>
-                {v.name}
-              </option>
-            ))}
-          </Select>
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="supplier">
-            {t('admin.fabricChallan.supplier', { defaultValue: 'Supplier' })}
-          </Label>
-          <Input
-            id="supplier"
-            value={header.supplier}
-            onChange={(e) =>
-              setHeader((h) => ({ ...h, supplier: e.target.value }))
+          <Combobox
+            value={header.vendorId === '' ? null : header.vendorId}
+            options={vendors.map((v) => ({
+              value: Number(v.id),
+              label: v.name,
+            }))}
+            onChange={(id) =>
+              setHeader((h) => ({ ...h, vendorId: (id as number) ?? '' }))
             }
-            placeholder="Kotty Lifestyle Pvt. Ltd."
+            onAddNew={
+              canAddVendor
+                ? (typed) => {
+                    setVendorName(typed);
+                    setVendorOpen(true);
+                  }
+                : undefined
+            }
+            addNewLabel={t('admin.fabricChallan.addVendor', {
+              defaultValue: 'Add supplier',
+            })}
+            placeholder={t('admin.fabricChallan.vendorNone', {
+              defaultValue: 'Choose a supplier…',
+            })}
+            ariaLabel={t('admin.fabricChallan.vendor', { defaultValue: 'Supplier' })}
           />
         </div>
       </div>
@@ -266,8 +341,9 @@ export default function ReceiveFabricChallan() {
         {lines.map((line, idx) => (
           <div
             key={line.key}
-            className="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-3 flex flex-col sm:flex-row sm:items-end gap-3"
+            className="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-3"
           >
+            <div className="flex flex-col sm:flex-row sm:items-end gap-3">
             <div className="flex-1 space-y-1.5">
               <Label>
                 {t('admin.fabricChallan.fabric', { defaultValue: 'Fabric' })}{' '}
@@ -275,29 +351,41 @@ export default function ReceiveFabricChallan() {
                   #{idx + 1}
                 </span>
               </Label>
-              <FabricPicker
-                fabrics={fabrics}
-                fabricId={line.fabricId}
-                fabricColourId={line.fabricColourId}
-                onChange={(choice) =>
-                  patchLine(line.key, {
-                    fabricId: choice?.fabricId ?? null,
-                    fabricColourId: choice?.fabricColourId ?? null,
-                  })
-                }
-                onFabricCreated={(created) =>
-                  setFabrics((fs) => [...fs, created])
-                }
+              <Combobox
+                value={line.fabricId}
+                options={fabricOptions}
+                onChange={(id) => chooseFabric(line.key, (id as number) ?? null)}
+                onAddNew={(typed) => {
+                  setFabricSeed(typed);
+                  setFabricForKey(line.key);
+                }}
+                addNewLabel={t('admin.fabricChallan.addFabric', {
+                  defaultValue: 'Add fabric',
+                })}
+                placeholder={t('admin.fabricChallan.fabricPh', {
+                  defaultValue: 'Choose a fabric…',
+                })}
+                ariaLabel={t('admin.fabricChallan.fabric', { defaultValue: 'Fabric' })}
               />
-              {colourMissing(line) && (
-                <p className="text-xs text-[var(--color-destructive)]">
-                  {t('admin.fabricChallan.colourRequired', {
-                    defaultValue: 'This fabric stocks colours — pick one.',
-                  })}
-                </p>
-              )}
             </div>
-            <div className="w-full sm:w-32 space-y-1.5">
+            <div className="w-full sm:w-44 space-y-1.5">
+              <Label>
+                {t('admin.fabricChallan.colour', { defaultValue: 'Colour' })}
+              </Label>
+              <Combobox
+                value={line.fabricColourId}
+                options={colourOptionsFor(line.fabricId)}
+                onChange={(id) =>
+                  patchLine(line.key, { fabricColourId: (id as number) ?? null })
+                }
+                disabled={line.fabricId == null}
+                placeholder={t('admin.fabricChallan.colourPh', {
+                  defaultValue: 'Choose a colour…',
+                })}
+                ariaLabel={t('admin.fabricChallan.colour', { defaultValue: 'Colour' })}
+              />
+            </div>
+            <div className="w-full sm:w-28 space-y-1.5">
               <Label>
                 {t('admin.fabricChallan.quantity', { defaultValue: 'Quantity' })}
                 {uomFor(line.fabricId) ? ` (${uomFor(line.fabricId)})` : ''}
@@ -314,7 +402,7 @@ export default function ReceiveFabricChallan() {
                 placeholder="22.5"
               />
             </div>
-            <div className="w-full sm:w-32 space-y-1.5">
+            <div className="w-full sm:w-28 space-y-1.5">
               <Label>
                 {t('admin.fabricChallan.price', { defaultValue: 'Price' })}
                 {uomFor(line.fabricId) ? ` (₹/${uomFor(line.fabricId)})` : ' (₹)'}
@@ -342,6 +430,14 @@ export default function ReceiveFabricChallan() {
             >
               <Trash2 size={16} />
             </Button>
+            </div>
+            {colourMissing(line) && (
+              <p className="mt-2 text-xs text-[var(--color-destructive)]">
+                {t('admin.fabricChallan.colourRequired', {
+                  defaultValue: 'Pick the colour this stock is for.',
+                })}
+              </p>
+            )}
           </div>
         ))}
       </div>
@@ -372,6 +468,86 @@ export default function ReceiveFabricChallan() {
             : t('admin.fabricChallan.record', { defaultValue: 'Record challan' })}
         </Button>
       </div>
+
+      {/* "+ Add fabric" from the picker — the same editor the library uses, so
+          a fabric created here has every field, colours included. */}
+      <Dialog
+        open={fabricForKey != null}
+        onClose={() => {
+          setFabricForKey(null);
+          setFabricSeed('');
+        }}
+        maxWidthClassName="max-w-3xl"
+        title={t('admin.fabricLibrary.newFabric', { defaultValue: 'New fabric' })}
+      >
+        <FabricEditorForm
+          key={`new-${fabricSeed}`}
+          editing={null}
+          initialName={fabricSeed}
+          initialUnitOfMeasure="meter"
+          onCancel={() => {
+            setFabricForKey(null);
+            setFabricSeed('');
+          }}
+          onSaved={(created) => {
+            if (created) {
+              setFabrics((fs) => [...fs, created]);
+              if (fabricForKey != null) chooseFabric(fabricForKey, created.id);
+            }
+            setFabricForKey(null);
+            setFabricSeed('');
+          }}
+        />
+      </Dialog>
+
+      <Dialog
+        open={vendorOpen}
+        onClose={() => {
+          setVendorOpen(false);
+          setVendorName('');
+        }}
+        title={t('admin.fabricChallan.addVendor', { defaultValue: 'Add supplier' })}
+        initialFocusRef={vendorRef}
+        footer={
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setVendorOpen(false);
+                setVendorName('');
+              }}
+            >
+              {t('common.cancel', { defaultValue: 'Cancel' })}
+            </Button>
+            <Button
+              size="sm"
+              disabled={!vendorName.trim() || vendorSaving}
+              onClick={() => void submitVendor()}
+            >
+              {vendorSaving
+                ? t('common.saving', { defaultValue: 'Saving…' })
+                : t('common.create', { defaultValue: 'Create' })}
+            </Button>
+          </>
+        }
+      >
+        <Label>
+          {t('admin.fabricChallan.vendorName', { defaultValue: 'Supplier name' })}
+        </Label>
+        <Input
+          ref={vendorRef}
+          value={vendorName}
+          onChange={(e) => setVendorName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && vendorName.trim()) {
+              e.preventDefault();
+              void submitVendor();
+            }
+          }}
+          placeholder="Shree Textiles Mills"
+        />
+      </Dialog>
     </div>
   );
 }

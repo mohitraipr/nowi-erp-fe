@@ -72,7 +72,7 @@ interface Props {
 /**
  * Single fabric editor form — used by both the Fabric Library page and
  * the intake's FabricPicker "+ Add fabric" picker. Captures every
- * field the BE accepts (name, count, construction, gsm, cuttableWidth,
+ * field the BE accepts (name, gsm, cuttableWidth,
  * unitOfMeasure, pricePerUnit, notes) plus a composition row editor
  * that validates against the sum-to-100 rule.
  *
@@ -103,8 +103,6 @@ export default function FabricEditorForm({
     pricePerUnit: editing?.pricePerUnit ?? '',
     imagePath: editing?.imagePath ?? '',
     notes: editing?.notes ?? '',
-    count: editing?.count ?? '',
-    construction: editing?.construction ?? '',
     gsm: editing?.gsm != null ? String(editing.gsm) : '',
     cuttableWidth:
       editing?.cuttableWidth != null ? String(editing.cuttableWidth) : '',
@@ -306,8 +304,6 @@ export default function FabricEditorForm({
         pricePerUnit: form.pricePerUnit || null,
         imagePath: form.imagePath || null,
         notes: (trimNotes ? form.notes.trim() : form.notes) || null,
-        count: form.count.trim() || null,
-        construction: form.construction.trim() || null,
         gsm: form.gsm ? Number(form.gsm) : null,
         cuttableWidth: form.cuttableWidth || null,
         unitOfMeasure: form.unitOfMeasure || null,
@@ -410,24 +406,6 @@ export default function FabricEditorForm({
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div>
-          <Label>{t('admin.fabricLibrary.form.count')}</Label>
-          <Input
-            value={form.count}
-            onChange={(e) => setForm((f) => ({ ...f, count: e.target.value }))}
-            placeholder="e.g. 30s × 30s"
-          />
-        </div>
-        <div>
-          <Label>{t('admin.fabricLibrary.form.construction')}</Label>
-          <Input
-            value={form.construction}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, construction: e.target.value }))
-            }
-            placeholder="e.g. Twill 2/1"
-          />
-        </div>
         <div>
           <Label>{t('admin.fabricLibrary.form.gsm')}</Label>
           <Input

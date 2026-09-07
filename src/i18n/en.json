@@ -897,9 +897,8 @@
       "back": "Back to Fabric Library",
       "challanNo": "Challan no.",
       "challanDate": "Challan date",
-      "vendor": "Vendor",
-      "vendorNone": "Choose a vendor…",
-      "supplier": "Supplier",
+      "vendor": "Supplier",
+      "vendorNone": "Choose a supplier…",
       "lines": "Fabrics on this challan",
       "addLine": "Add line",
       "fabric": "Fabric",
@@ -913,7 +912,9 @@
       "record": "Record challan",
       "saving": "Recording…",
       "savedToast": "Challan recorded — stock updated.",
-      "saveError": "Could not record the challan."
+      "saveError": "Could not record the challan.",
+      "addVendor": "Add supplier",
+      "addVendorError": "Could not add that supplier."
     },
     "fabricLibrary": {
       "title": "Fabric Library",
@@ -979,21 +980,41 @@
       },
       "noStock": "no stock",
       "available": "available",
-      "addStock": "Take stock",
       "edit": "Edit",
       "stockSavedToast": "Stock entry recorded.",
       "stockSaveError": "Could not record stock. Try again.",
-      "stockHelp": "Take stock out — records an OUT challan against this colour. Add stock via Receive fabric.",
       "stock": {
-        "entryType": "Entry type",
         "quantity": "Quantity",
+        "note": "Note"
+      },
+      "issue": "Issue",
+      "issueFabric": "Issue fabric",
+      "detail": {
+        "back": "Back to library",
+        "totalStock": "Total stock",
+        "colours": "Colours",
+        "stockValue": "Stock value",
+        "history": "History",
+        "noHistory": "No movements yet.",
+        "unattributed": "Unattributed entries",
+        "unattributedHint": "Recorded before colours were tracked.",
         "price": "Price",
-        "pricePh": "optional — updates the fabric’s price",
-        "note": "Note",
-        "receipt": "Receipt (add stock)",
-        "adjustment": "Adjustment",
-        "consumption": "Consumption (remove stock)",
-        "record": "Record entry"
+        "inStock": "In stock",
+        "value": "Value",
+        "noColours": "No colours on this fabric yet.",
+        "notFound": "Fabric not found.",
+        "cols": {
+          "date": "Date",
+          "direction": "Direction",
+          "qty": "Qty",
+          "rate": "Rate",
+          "challan": "Challan",
+          "party": "Party",
+          "note": "Note",
+          "balance": "Balance"
+        },
+        "in": "IN",
+        "out": "OUT"
       }
     },
     "editRequests": {
