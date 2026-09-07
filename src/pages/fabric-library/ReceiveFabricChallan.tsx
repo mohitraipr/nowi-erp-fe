@@ -82,9 +82,22 @@ export default function ReceiveFabricChallan() {
     void listFabrics().then((rows) => {
       if (alive) setFabrics(rows);
     });
-    void listVendors().then((rows) => {
-      if (alive) setVendors(rows.filter((v) => v.isActive));
-    });
+    void listVendors()
+      .then((rows) => {
+        if (alive) setVendors(rows.filter((v) => v.isActive));
+      })
+      .catch(() => {
+        // A supplier is required, so a silent failure would leave the form
+        // permanently unsubmittable with nothing on screen to explain it.
+        if (alive) {
+          toast.show(
+            t('admin.fabricChallan.vendorLoadError', {
+              defaultValue: 'Could not load suppliers. Reload to try again.',
+            }),
+            'error',
+          );
+        }
+      });
     return () => {
       alive = false;
     };
@@ -140,9 +153,13 @@ export default function ReceiveFabricChallan() {
     }));
   };
 
-  /** Picking a fabric preselects its colour when there is exactly one. */
-  const chooseFabric = (key: number, fabricId: number | null) => {
-    const f = fabricId != null ? fabricById.get(fabricId) : undefined;
+  /**
+   * Picking a fabric preselects its colour when there is exactly one. `known`
+   * lets a just-created fabric be passed in directly — it isn't in `fabricById`
+   * yet, because that memo is derived from state this render hasn't seen.
+   */
+  const chooseFabric = (key: number, fabricId: number | null, known?: Fabric) => {
+    const f = known ?? (fabricId != null ? fabricById.get(fabricId) : undefined);
     const only = f?.colours?.length === 1 ? f.colours[0].id : null;
     patchLine(key, { fabricId, fabricColourId: only });
   };
@@ -492,7 +509,8 @@ export default function ReceiveFabricChallan() {
           onSaved={(created) => {
             if (created) {
               setFabrics((fs) => [...fs, created]);
-              if (fabricForKey != null) chooseFabric(fabricForKey, created.id);
+              if (fabricForKey != null)
+                chooseFabric(fabricForKey, created.id, created);
             }
             setFabricForKey(null);
             setFabricSeed('');
