@@ -61,7 +61,7 @@ function isoDaysAgo(n: number): string {
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
-const DEFAULT_RANGE_DAYS = 30;
+const DEFAULT_RANGE_DAYS = 7;
 // "View all" clears the activity window to surface EVERY product regardless of
 // last-touched date. The picker can't render an empty range, so we widen to an
 // all-time floor (predates all data → BE date filter matches everything)
@@ -77,9 +77,6 @@ export default function Home() {
   // BE will 403.
   const canSubmit = hasAnyRole(user, DESIGN_SUBMIT_ROLES);
 
-  // State-backed ref: a plain useRef would still be null on first render, so
-  // the portal would never mount. Setting state when the node attaches re-renders.
-  const [filterSlot, setFilterSlot] = useState<HTMLDivElement | null>(null);
   const [cards, setCards] = useState<DashboardCards | null>(null);
   const [cardsError, setCardsError] = useState(false);
 
@@ -115,14 +112,11 @@ export default function Home() {
           {t('dashboard.title', { defaultValue: 'Dashboard' })}
         </h1>
 
-        {/* Filters sit beside the primary action, on the title row. */}
+        {/* The date window sits beside the primary action, on the title row. */}
         <div className="flex flex-wrap items-center gap-2">
           <FilterRail>
-            {/* Status first (left): the list's own filter renders itself in here
-                — its options depend on the table's active tab, so the state stays
-                with the table while the control sits in the header. */}
-            <div ref={setFilterSlot} className="contents" />
-            {/* Page-wide window, last (right) — scopes BOTH cards and list. */}
+            {/* Page-wide window — scopes BOTH cards and list. The status filter
+                lives beside the table's search box, not here. */}
             <DateRangePicker
               from={cardsFrom}
               to={cardsTo}
@@ -165,7 +159,6 @@ export default function Home() {
           No in-card picker here — omitting onDateApply hides it; the table is
           still scoped by the shared from/to window. */}
       <StylesInFlightTable
-        filterSlot={filterSlot}
         initialTab={initialTab}
         from={cardsFrom}
         to={cardsTo}

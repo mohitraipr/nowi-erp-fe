@@ -49,7 +49,12 @@ export interface BatchSizeLine {
    *  shipped have no history to show. */
   qtyCut: number;
   qtyStitched: number;
+  /** Pieces CURRENTLY out for alteration — a signed balance the server keeps:
+   *  +n when pieces are sent back, -n when they return or are scrapped. */
+  qtyAltered: number;
   qtyFinished: number;
+  /** Written off at alteration; these never reach finishing. */
+  qtyScrapped: number;
   /** null = no forecast existed (style-origin), NOT "forecast said zero". */
   suggestedQty: number | null;
   qtyProduced: number | null;
@@ -57,6 +62,11 @@ export interface BatchSizeLine {
    *  remains to dispatch. Always a number (0 when nothing shipped). */
   qtyDispatched: number;
 }
+
+/** Whether a batch's fabric is sorted. Mirrors the BE enum. */
+export type FabricStatus = 'available' | 'not_available' | 'ordered';
+
+export const FABRIC_STATUSES: FabricStatus[] = ['available', 'not_available', 'ordered'];
 
 export interface ProductionBatch {
   id: number;
@@ -71,6 +81,9 @@ export interface ProductionBatch {
   externalSku: string | null;
   /** Colour master for an external batch; null on style/forecast batches. */
   colourId: number | null;
+  /** Is the fabric sorted? null = nobody has said yet. Editable on Pipeline
+   *  only; `not_available` blocks send-to-production. */
+  fabricStatus: FabricStatus | null;
   colourName: string | null;
   colourHex: string | null;
   /** Tailor the lot went to the floor with; their code is inside `batchNo`. */
@@ -255,6 +268,10 @@ export function updateBatch(
 export interface StageQtyItem {
   sku: string;
   qty: number;
+  /** Of this size, how many went back for alteration instead of reaching the
+   *  target stage. Accepted ONLY on the stitching → finishing move; the server
+   *  refuses it elsewhere rather than dropping it. */
+  qtyToAlteration?: number;
 }
 
 export function advanceBatch(
@@ -287,6 +304,40 @@ export function sendToProduction(
     .then((r) => r.data);
 }
 
+/** Set (or clear, with null) whether the batch's fabric is sorted. Pipeline
+ *  only — the BE refuses it once the lot is on the floor. */
+export function setFabricStatus(
+  id: number,
+  fabricStatus: FabricStatus | null,
+): Promise<ProductionBatch> {
+  return apiClient
+    .patch<ProductionBatch>(`/api/production/batches/${id}/fabric-status`, { fabricStatus })
+    .then((r) => r.data);
+}
+
+/** A corrected TOTAL per stage for one size. Omit a stage to leave it alone. */
+export interface CorrectStageQtyItem {
+  sku: string;
+  cutting?: number;
+  stitching?: number;
+  finishing?: number;
+}
+
+/**
+ * Corrects what a stage RECORDED. Send the total each stage should read — the
+ * server writes the adjusting entry, so the history keeps the original figure
+ * and who changed it. This is the only path that can take a total DOWN; the
+ * ordinary stage entry only ever adds.
+ */
+export function correctStageQuantities(
+  id: number,
+  items: CorrectStageQtyItem[],
+): Promise<ProductionBatch> {
+  return apiClient
+    .post<ProductionBatch>(`/api/production/batches/${id}/actions/correct`, { items })
+    .then((r) => r.data);
+}
+
 export function completeBatch(
   id: number,
   items: { sku: string; qtyProduced: number }[],
@@ -302,7 +353,7 @@ export interface LotTimelineEntry {
   id: number;
   sku: string;
   size: string;
-  stage: 'cutting' | 'stitching' | 'finishing';
+  stage: 'cutting' | 'stitching' | 'alteration' | 'finishing' | 'scrapped';
   qty: number;
   note: string | null;
   recordedAt: string;
@@ -331,5 +382,26 @@ export function unparkStyle(styleKey: string): Promise<void> {
 export function cancelBatch(id: number, reason: string): Promise<ProductionBatch> {
   return apiClient
     .post<ProductionBatch>(`/api/production/batches/${id}/actions/cancel`, { reason })
+    .then((r) => r.data);
+}
+
+/** One size's outcome when pieces come back from alteration. */
+export interface AlterationReturnItem {
+  sku: string;
+  qtyFinished: number;
+  qtyScrapped?: number;
+}
+
+/**
+ * Record pieces coming BACK from alteration. Not a stage move — the lot is
+ * already in finishing, so only the per-size counts change. The server rejects
+ * returning more than is outstanding (`stitched - finished - scrapped`).
+ */
+export function alterationReturn(
+  id: number,
+  items: AlterationReturnItem[],
+): Promise<ProductionBatch> {
+  return apiClient
+    .post<ProductionBatch>(`/api/production/batches/${id}/actions/alteration-return`, { items })
     .then((r) => r.data);
 }

@@ -19,6 +19,7 @@ import {
   hasRole,
   DESIGN_SUBMIT_ROLES,
   DISPATCH_VIEW_ROLES,
+  PRODUCTION_BOARD_READ_ROLES,
   PRODUCTION_READ_ROLES,
 } from './lib/userRoles';
 import type { UserRole } from './api/types';
@@ -219,6 +220,8 @@ function App() {
                     'production_lead',
                     'production_editor',
                     'warehouse_manager',
+                    // Reaches ONLY the production board child, to set fabric status.
+                    'fabric_manager',
                   ]}
                 >
                   <S>
@@ -289,7 +292,7 @@ function App() {
               <Route
                 path="production"
                 element={
-                  <ProtectedRoute allowedRoles={[...PRODUCTION_READ_ROLES]}>
+                  <ProtectedRoute allowedRoles={[...PRODUCTION_BOARD_READ_ROLES]}>
                     <S>
                       <Production />
                     </S>
@@ -300,7 +303,7 @@ function App() {
               <Route
                 path="production/lots/:id"
                 element={
-                  <ProtectedRoute allowedRoles={[...PRODUCTION_READ_ROLES]}>
+                  <ProtectedRoute allowedRoles={[...PRODUCTION_BOARD_READ_ROLES]}>
                     <S>
                       <ProductionLotDetail />
                     </S>

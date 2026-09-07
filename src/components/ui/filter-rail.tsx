@@ -1,6 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { createPortal } from 'react-dom';
-import { Check, ChevronDown } from 'lucide-react';
+import { type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
 /**
@@ -88,134 +86,57 @@ export function FilterRailSegments<T extends string>({
 }
 
 /**
- * Multi-select for the rail — a select-shaped trigger that opens a checkbox
- * list. Deliberately NOT a {@link FilterRailSegments} pill: a segmented control
- * reads as exclusive (one lit, the rest dark), so people never discover they
- * can pick two. A dropdown that says "2 selected" does.
- *
- * `value` is the INCLUDED set; empty means "no filter", which is why the
- * trigger reads `allLabel` rather than "0 selected".
- *
- * Popover mechanics (portal + viewport clamp + outside-click/Escape) mirror
- * ColumnFilter — the house pattern, no dependency.
+ * Toggle-chip filter row — for a filter that sits beside a search box rather
+ * than in the rail. Not a {@link FilterRailSegments}: the caller owns the
+ * toggle semantics, so the same chips serve a pick-one filter (Production)
+ * and a pick-many one (the sampling dashboard).
  */
-export function FilterRailMultiSelect<T extends string>({
-  label,
-  allLabel,
+export function FilterChips<T extends string>({
   options,
   value,
-  onChange,
+  onToggle,
+  onClear,
+  clearLabel,
+  ariaLabel,
 }: {
-  /** Prefix on the trigger, e.g. "Status". */
-  label: string;
-  /** Trigger text when nothing is selected, e.g. "Status: All". */
-  allLabel: string;
   options: { value: T; label: string }[];
+  /** The selected set; a pick-one caller passes 0 or 1 entries. */
   value: T[];
-  onChange: (next: T[]) => void;
+  onToggle: (v: T) => void;
+  onClear: () => void;
+  clearLabel: string;
+  ariaLabel?: string;
 }) {
-  const [open, setOpen] = useState(false);
-  const btnRef = useRef<HTMLButtonElement>(null);
-  const popRef = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
-
-  useLayoutEffect(() => {
-    if (!open || !btnRef.current) return;
-    const r = btnRef.current.getBoundingClientRect();
-    const width = 232;
-    let left = r.left;
-    if (left + width > window.innerWidth - 8) left = window.innerWidth - width - 8;
-    if (left < 8) left = 8;
-    setPos({ top: r.bottom + 6, left });
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      const tgt = e.target as Node;
-      if (!popRef.current?.contains(tgt) && !btnRef.current?.contains(tgt)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
-    };
-    window.addEventListener('mousedown', onDown);
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('mousedown', onDown);
-      window.removeEventListener('keydown', onKey);
-    };
-  }, [open]);
-
-  const toggle = (v: T) =>
-    onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v]);
-
-  const trigger =
-    value.length === 0
-      ? allLabel
-      : value.length === 1
-        ? `${label}: ${options.find((o) => o.value === value[0])?.label ?? value[0]}`
-        : `${label}: ${value.length}`;
-
   return (
-    <span className="relative inline-flex">
-      <button
-        ref={btnRef}
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        aria-haspopup="listbox"
-        className={cn(RAIL_SELECT_CLASS, 'inline-flex items-center gap-1.5')}
-      >
-        {trigger}
-        <ChevronDown size={14} aria-hidden className="text-[var(--color-muted-foreground)]" />
-      </button>
-      {open &&
-        createPortal(
-          <div
-            ref={popRef}
-            role="listbox"
-            aria-multiselectable
-            style={{ position: 'fixed', top: pos.top, left: pos.left, width: 232 }}
-            className="z-[60] overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] py-1 shadow-[var(--shadow-pop)]"
-          >
-            {options.map((o) => {
-              const on = value.includes(o.value);
-              return (
-                <button
-                  key={o.value}
-                  type="button"
-                  role="option"
-                  aria-selected={on}
-                  onClick={() => toggle(o.value)}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[13px] text-[var(--color-foreground)] transition-colors hover:bg-[var(--color-surface-2)]"
-                >
-                  <span
-                    aria-hidden
-                    className={cn(
-                      'flex h-4 w-4 shrink-0 items-center justify-center rounded border',
-                      on
-                        ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
-                        : 'border-[var(--color-border)]',
-                    )}
-                  >
-                    {on && <Check size={11} strokeWidth={3} />}
-                  </span>
-                  {o.label}
-                </button>
-              );
-            })}
-            {value.length > 0 && (
-              <button
-                type="button"
-                onClick={() => onChange([])}
-                className="mt-1 w-full border-t border-[var(--color-border)] px-3 py-1.5 text-left text-[12px] font-medium text-[var(--color-muted-foreground)] transition-colors hover:text-[var(--color-foreground)]"
-              >
-                {allLabel}
-              </button>
+    <div role="group" aria-label={ariaLabel} className="flex flex-wrap items-center gap-1.5">
+      {options.map((o) => {
+        const on = value.includes(o.value);
+        return (
+          <button
+            key={o.value}
+            type="button"
+            onClick={() => onToggle(o.value)}
+            aria-pressed={on}
+            className={cn(
+              'h-8 rounded-full border px-3 text-[12px] font-medium transition-colors',
+              on
+                ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-[var(--color-primary)]'
+                : 'border-[var(--color-border)] text-[var(--color-muted-foreground)] hover:border-[var(--color-border-strong)] hover:text-[var(--color-foreground)]',
             )}
-          </div>,
-          document.body,
-        )}
-    </span>
+          >
+            {o.label}
+          </button>
+        );
+      })}
+      {value.length > 0 && (
+        <button
+          type="button"
+          onClick={onClear}
+          className="h-8 px-2 text-[12px] font-medium text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
+        >
+          {clearLabel}
+        </button>
+      )}
+    </div>
   );
 }
