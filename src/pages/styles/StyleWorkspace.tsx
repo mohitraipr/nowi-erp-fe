@@ -553,7 +553,11 @@ export default function StyleWorkspace() {
             value={
               <span className="inline-flex items-center gap-2">
                 {style.fabric?.name ?? '—'}
-                <FabricSwatchThumb fabricImagePath={style.fabricImagePath} />
+                <FabricSwatchThumb
+                  // The style's own sample swatch first; the fabric master's
+                  // generic image is only a fallback.
+                  fabricImagePath={style.fabricImagePath ?? style.fabric?.imagePath ?? null}
+                />
               </span>
             }
           />

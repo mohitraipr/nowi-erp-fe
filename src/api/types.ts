@@ -273,13 +273,24 @@ export interface FabricColour {
   name: string;
   hex: string | null;
   family: string | null;
+  /** Derived child fabric code `{fabric.code}-{suffix}`, e.g. `FAB-00001-NVY`. */
+  code?: string | null;
+  /** Current (latest-paid) price for this colour — ₹ per fabric UoM. */
+  pricePerUnit?: number | null;
+  /** GCS path of this colour's swatch image (optional). */
+  imagePath?: string | null;
   /** Per-(fabric, colour) availability: SUM of stock entries for this colour. */
   availableQuantity?: number;
 }
 
 export interface Fabric {
   id: number;
+  /** NOWI-minted parent fabric code, e.g. `FAB-00001`. */
+  code?: string | null;
   name: string;
+  /** GCS object path of the fabric's representative image. */
+  imagePath?: string | null;
+  /** @deprecated Price now lives per colour child (`FabricColour.pricePerUnit`). */
   pricePerUnit: string | null;
   /** Derived classification from the dominant fibre in `compositions`. */
   typeLabel?: string | null;
@@ -310,40 +321,51 @@ export interface FabricStockEntry {
   fabricColour?: { id: number; colour: { name: string; hex: string | null } } | null;
   /** Signed: positive for receipt, negative for consumption. */
   quantity: string;
+  /** Rate paid on this line — IN only; null on OUT and when not captured. */
+  pricePerUnit?: string | null;
   entryType: FabricStockEntryType;
   note: string | null;
   styleId: number | null;
+  /** Hydrated by the ledger read — the challan that moved this quantity. */
+  challan?: {
+    id: number;
+    direction: FabricChallanDirection;
+    challanNo: string;
+    challanDate: string;
+    supplier: string;
+    vendor?: { id: number; name: string } | null;
+  } | null;
   createdBy: number | null;
   createdAt: string;
   isTestData?: boolean;
 }
 
-export interface CreateFabricStockEntryInput {
-  /** Positive magnitude — the server signs it. */
-  quantity: number;
-  entryType: FabricStockEntryType;
-  /** Required when the fabric stocks colours; rejected otherwise. */
-  fabricColourId?: number | null;
-  note?: string | null;
-}
-
 // ── Fabric receipt challans ──────────────────────────────────────────────
 
 /** One fabric line of a challan to record (becomes a `receipt` entry). */
+/** Direction of a fabric challan: `in` adds stock, `out` reduces it. */
+export type FabricChallanDirection = 'in' | 'out';
+
 export interface FabricChallanLineInput {
-  fabricId: number;
-  /** Required when the fabric stocks colours; rejected otherwise. */
-  fabricColourId?: number | null;
+  /** The colour child (FabricColour id) this line moves — the stocked unit. */
+  fabricColourId: number;
   /** Positive magnitude in the fabric's UoM. */
   quantity: number;
+  /** Rate per unit (₹ / UoM). IN only — refreshes the colour child's price. */
+  pricePerUnit?: number | null;
   note?: string | null;
 }
 
 export interface CreateFabricChallanInput {
+  /** Movement direction — defaults to `in` on the server when omitted. */
+  direction?: FabricChallanDirection;
   challanNo: string;
   /** ISO yyyy-mm-dd (the date printed on the paper challan). */
   challanDate: string;
-  supplier: string;
+  /** Vendor id — the structured source; the server names the supplier from it. */
+  vendorId?: number | null;
+  /** Free text, only for a source with no vendor record. Omit to use the vendor. */
+  supplier?: string;
   transportMode?: string | null;
   placeOfSupply?: string | null;
   note?: string | null;

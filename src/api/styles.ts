@@ -19,7 +19,6 @@ import type {
   Fabric,
   FabricStockEntry,
   FabricStockEntryType,
-  CreateFabricStockEntryInput,
   Colour,
 } from './types';
 
@@ -512,10 +511,17 @@ export async function listFabrics(): Promise<Fabric[]> {
   return res.data;
 }
 
+export async function getFabric(id: number): Promise<Fabric> {
+  const res = await apiClient.get<Fabric>(`/api/fabrics/${id}`);
+  return res.data;
+}
+
 /** Shape accepted by create/update — `compositions` percent may be number or string. */
 export interface FabricUpsertBody {
   name?: string;
   pricePerUnit?: string | number | null;
+  /** GCS object path of the fabric's representative image (from the upload flow). */
+  imagePath?: string | null;
   notes?: string | null;
   isActive?: boolean;
   count?: string | null;
@@ -574,18 +580,7 @@ export async function listFabricStock(
   return res.data;
 }
 
-/** Record a stock entry (receipt / adjustment / consumption). Returns the
- * refreshed fabric with its new `availableQuantity`. */
-export async function addFabricStock(
-  fabricId: number,
-  body: CreateFabricStockEntryInput,
-): Promise<Fabric> {
-  const res = await apiClient.post<Fabric>(
-    `/api/fabrics/${fabricId}/stock`,
-    body,
-  );
-  return res.data;
-}
+// Stock is written only via fabric challans (IN/OUT) — see api/fabricChallans.
 
 // Re-export common types so screens don't need to reach into types.ts.
 export type {
@@ -603,5 +598,4 @@ export type {
   Fabric,
   FabricStockEntry,
   FabricStockEntryType,
-  CreateFabricStockEntryInput,
 };
