@@ -22,6 +22,11 @@ const STAGE_LABEL: Record<STAGE, string> = {
   finishing: 'finished',
 };
 
+/** Until the lot is closed the pieces are IN finishing, not finished — the
+ *  per-size table says the same, and the two must not disagree. */
+const stageHeading = (stage: STAGE, pastFloor: boolean) =>
+  stage === 'finishing' && !pastFloor ? 'finishing' : STAGE_LABEL[stage];
+
 /**
  * Corrects a lot: its plan, what each stage recorded, and the stage it sits in.
  *
@@ -71,6 +76,7 @@ export default function EditLotDialog({
   if (!lot) return null;
 
   const total = Object.values(planned).reduce((a, b) => a + b, 0);
+  const pastFloor = ['completed', 'dispatched'].includes(lot.status);
 
   // Only the figures that actually moved, so an untouched stage is left alone
   // rather than being "corrected" to the value it already holds.
@@ -150,7 +156,9 @@ export default function EditLotDialog({
               </th>
               {STAGES.map((k) => (
                 <th key={k} className="py-2 pr-3 text-left font-semibold">
-                  {t(`admin.production.lot.${STAGE_LABEL[k]}`, { defaultValue: STAGE_LABEL[k] })}
+                  {t(`admin.production.lot.${stageHeading(k, pastFloor)}`, {
+                    defaultValue: stageHeading(k, pastFloor),
+                  })}
                 </th>
               ))}
             </tr>
