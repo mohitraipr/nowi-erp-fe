@@ -1,12 +1,11 @@
 import {
-  Fragment,
   useCallback,
   useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from 'react';
-import { Plus, ChevronUp, ChevronDown, ChevronRight, Truck } from 'lucide-react';
+import { Plus, ChevronUp, ChevronDown, Truck } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
@@ -55,14 +54,6 @@ function childPriceLabel(f: Fabric): string {
   return min === max ? `₹${min}${uom}` : `₹${min}–${max}${uom}`;
 }
 
-/** Render a fabric's composition as "98% Cotton · 2% Elastane". */
-function contentSummary(f: Fabric): string {
-  if (!f.compositions || f.compositions.length === 0) return '—';
-  return f.compositions
-    .map((c) => `${Number(c.percent)}% ${c.fibre}`)
-    .join(' · ');
-}
-
 /**
  * Fabric Library — master data screen.
  *
@@ -79,15 +70,6 @@ export default function FabricLibrary() {
   const [filters, setFilters] = useState<FabricFilters>(EMPTY_FILTERS);
   const [loading, setLoading] = useState(true);
 
-  // Which parent fabrics are expanded to show their colour children.
-  const [expanded, setExpanded] = useState<Set<number>>(new Set());
-  const toggleExpand = (id: number) =>
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-
   // Batch-resolve every image path (parent + colour swatches) in one call so
   // the thumbnails don't fire an N+1 of signed-URL requests.
   const imagePaths = useMemo(
@@ -101,9 +83,8 @@ export default function FabricLibrary() {
   const imageUrls = useSignedUrls(imagePaths);
 
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [editing, setEditing] = useState<Fabric | null>(null);
 
-  // ── Take-stock dialog (records an OUT challan — the sole ledger writer) ──
+  // ── Issue dialog (records an OUT challan — the sole ledger writer) ──
   const [stockFabric, setStockFabric] = useState<Fabric | null>(null);
   const [stockForm, setStockForm] = useState<{
     quantity: string;
@@ -143,9 +124,8 @@ export default function FabricLibrary() {
       // Reducing stock is an OUT challan (cap-checked server-side).
       await createFabricChallan({
         direction: 'out',
-        challanNo: `TAKE-${today}`,
+        challanNo: `ISSUE-${today}`,
         challanDate: today,
-        supplier: '',
         note: stockForm.note.trim() || null,
         lines: [
           { fabricColourId: stockForm.fabricColourId, quantity: qty },
@@ -202,20 +182,6 @@ export default function FabricLibrary() {
         .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value));
     };
 
-    // fibre: each fabric counts once per distinct fibre it contains
-    const fibreMap = new Map<string, number>();
-    for (const f of fabrics) {
-      const seen = new Set<string>();
-      for (const c of f.compositions ?? []) {
-        if (seen.has(c.fibre)) continue;
-        seen.add(c.fibre);
-        fibreMap.set(c.fibre, (fibreMap.get(c.fibre) ?? 0) + 1);
-      }
-    }
-    const fibre = [...fibreMap.entries()]
-      .map<ColumnFilterOption>(([value, count]) => ({ value, count }))
-      .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value));
-
     return {
       typeLabel: tally(fabrics.map((f) => f.typeLabel)),
       unitOfMeasure: fabrics.map((f) => f.unitOfMeasure).some(Boolean)
@@ -227,7 +193,6 @@ export default function FabricLibrary() {
             ),
           ).map((o) => o) // labels already localised; value === label
         : [],
-      fibre,
     };
   }, [fabrics, t]);
 
@@ -266,14 +231,15 @@ export default function FabricLibrary() {
 
     // content / fibre — keep a fabric if it has at least one non-excluded
     // fibre (a fully-excluded fabric drops out).
-    if (columns.fibre.length > 0)
-      xs = xs.filter((f) =>
-        (f.compositions ?? []).some(
-          (c) => !columns.fibre.includes(c.fibre),
-        ),
-      );
-
-    const price = (f: Fabric) => Number(f.pricePerUnit ?? 0);
+    // Sort on the same number the Price column shows — the cheapest colour
+    // child. The parent's own `pricePerUnit` is deprecated and no longer
+    // written, so sorting by it ordered rows by a value nobody can see.
+    const price = (f: Fabric) => {
+      const ps = (f.colours ?? [])
+        .map((c) => c.pricePerUnit)
+        .filter((p): p is number => p != null);
+      return ps.length > 0 ? Math.min(...ps) : 0;
+    };
     const updated = (f: Fabric) =>
       f.updatedAt ? new Date(f.updatedAt).getTime() : 0;
     switch (filters.sort) {
@@ -296,14 +262,7 @@ export default function FabricLibrary() {
     return xs;
   }, [fabrics, filters]);
 
-  const openCreate = () => {
-    setEditing(null);
-    setDialogOpen(true);
-  };
-  const openEdit = (f: Fabric) => {
-    setEditing(f);
-    setDialogOpen(true);
-  };
+  const openCreate = () => setDialogOpen(true);
 
   /**
    * Click a sortable column header → toggle that column's asc/desc sort.
@@ -325,16 +284,11 @@ export default function FabricLibrary() {
   };
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="font-serif text-2xl text-[var(--color-primary)]">
-            {t('admin.fabricLibrary.title')}
-          </h1>
-          <p className="text-sm text-[var(--color-muted-foreground)] mt-1">
-            {t('admin.fabricLibrary.subtitle')}
-          </p>
-        </div>
+    <div className="space-y-6 pb-10">
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="font-serif text-3xl font-semibold tracking-tight">
+          {t('admin.fabricLibrary.title')}
+        </h1>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={() => navigate('receive')}>
             <Truck size={16} />
@@ -349,7 +303,7 @@ export default function FabricLibrary() {
             <span className="ml-1">{t('admin.fabricLibrary.newFabric')}</span>
           </Button>
         </div>
-      </div>
+      </header>
 
       <FabricFilterBar
         filters={filters}
@@ -361,7 +315,7 @@ export default function FabricLibrary() {
       <section className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-[var(--radius-md)]">
         <div className="overflow-x-auto">
           <table className="w-full text-[13px]">
-            <thead className="bg-[var(--color-surface-2)] text-[var(--color-muted-foreground)] text-xs">
+            <thead className="bg-[var(--color-surface-2)] text-[11px] font-semibold uppercase tracking-wide text-[var(--color-muted-foreground)]">
               <tr>
                 <SortHeader
                   label={t('admin.fabricLibrary.cols.name')}
@@ -383,31 +337,15 @@ export default function FabricLibrary() {
                     ) : undefined
                   }
                 />
-                <FilterHeader
-                  label={t('admin.fabricLibrary.cols.content')}
-                  className="hidden lg:table-cell"
-                  filter={
-                    columnOptions.fibre.length > 0 ? (
-                      <ColumnFilter
-                        title={t('admin.fabricLibrary.cols.content')}
-                        options={columnOptions.fibre}
-                        excluded={filters.columns.fibre}
-                        onChange={(next) => setColumnFilter('fibre', next)}
-                      />
-                    ) : (
-                      <span />
-                    )
-                  }
-                />
-                <th className="text-left font-medium px-3 py-2 hidden lg:table-cell">
+                <th className="text-left px-3 py-2 hidden lg:table-cell">
                   {t('admin.fabricLibrary.cols.colours', {
                     defaultValue: 'Colours',
                   })}
                 </th>
-                <th className="text-right font-medium px-3 py-2 hidden md:table-cell">
+                <th className="text-right px-3 py-2 hidden md:table-cell">
                   {t('admin.fabricLibrary.cols.gsm')}
                 </th>
-                <th className="text-right font-medium px-3 py-2 hidden md:table-cell">
+                <th className="text-right px-3 py-2 hidden md:table-cell">
                   {t('admin.fabricLibrary.cols.width')}
                 </th>
                 <SortHeader
@@ -432,7 +370,7 @@ export default function FabricLibrary() {
                     ) : undefined
                   }
                 />
-                <th className="text-right font-medium px-3 py-2">
+                <th className="text-right px-3 py-2">
                   {t('admin.fabricLibrary.cols.available')}
                 </th>
                 <SortHeader
@@ -442,7 +380,7 @@ export default function FabricLibrary() {
                   direction="desc"
                   onClick={() => cycleSort('updated')}
                 />
-                <th className="text-right font-medium px-3 py-2">
+                <th className="text-right px-3 py-2">
                   {t('admin.fabricLibrary.cols.actions')}
                 </th>
               </tr>
@@ -470,31 +408,13 @@ export default function FabricLibrary() {
               )}
               {!loading &&
                 filtered.map((f) => (
-                  <Fragment key={f.id}>
                   <tr
-                    className="border-t border-[var(--color-border)] hover:bg-[var(--color-muted)] cursor-pointer"
-                    onClick={() => openEdit(f)}
+                    key={f.id}
+                    className="group/row border-t border-[var(--color-border)] hover:bg-[var(--color-muted)] cursor-pointer"
+                    onClick={() => navigate(`/fabric-library/${f.id}`)}
                   >
                     <td className="px-3 py-2 font-medium">
                       <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          aria-label={t('admin.fabricLibrary.toggleColours', {
-                            defaultValue: 'Show colours',
-                          })}
-                          className="shrink-0 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] disabled:opacity-30"
-                          disabled={!f.colours || f.colours.length === 0}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleExpand(f.id);
-                          }}
-                        >
-                          {expanded.has(f.id) ? (
-                            <ChevronDown size={15} />
-                          ) : (
-                            <ChevronRight size={15} />
-                          )}
-                        </button>
                         {f.imagePath && imageUrls[f.imagePath] && (
                           <img
                             src={imageUrls[f.imagePath]}
@@ -505,12 +425,9 @@ export default function FabricLibrary() {
                         )}
                         <div>
                           <div className="flex items-center">
-                            {f.name}
-                            {f.code && (
-                              <span className="ml-1.5 text-[10px] font-normal text-[var(--color-muted-foreground)] tabular-nums">
-                                {f.code}
-                              </span>
-                            )}
+                            <span className="text-[var(--color-primary)] group-hover/row:underline">
+                              {f.name}
+                            </span>
                             {f.isBlended && (
                               <Badge
                                 variant="outline"
@@ -520,16 +437,11 @@ export default function FabricLibrary() {
                               </Badge>
                             )}
                           </div>
-                          {f.typeLabel && (
-                            <div className="text-[11px] font-normal text-[var(--color-muted-foreground)]">
-                              {f.typeLabel}
-                            </div>
-                          )}
+                          <div className="text-[11px] font-normal text-[var(--color-muted-foreground)]">
+                            {[f.code, f.typeLabel].filter(Boolean).join(' · ')}
+                          </div>
                         </div>
                       </div>
-                    </td>
-                    <td className="px-3 py-2 hidden lg:table-cell text-xs text-[var(--color-muted-foreground)]">
-                      {contentSummary(f)}
                     </td>
                     <td className="px-3 py-2 hidden lg:table-cell">
                       {f.colours && f.colours.length > 0 ? (
@@ -557,12 +469,26 @@ export default function FabricLibrary() {
                               ].join('')}
                               className="inline-flex items-center gap-1 rounded-full border border-[var(--color-border)] pl-1 pr-1.5 py-0.5 text-[11px] text-[var(--color-foreground)]"
                             >
-                              <span
-                                className="h-2.5 w-2.5 rounded-full border border-black/10"
-                                style={{
-                                  backgroundColor: c.hex || c.name.toLowerCase(),
-                                }}
-                              />
+                              {/* The colour's own swatch when it has one, else
+                                  the fabric's image — the colour name beside it
+                                  is what actually names the chip either way. */}
+                              {(c.imagePath ?? f.imagePath) &&
+                              imageUrls[(c.imagePath ?? f.imagePath)!] ? (
+                                <img
+                                  src={imageUrls[(c.imagePath ?? f.imagePath)!]}
+                                  alt=""
+                                  className="h-3.5 w-3.5 rounded-[2px] border border-black/10 object-cover"
+                                  loading="lazy"
+                                />
+                              ) : (
+                                <span
+                                  className="h-2.5 w-2.5 rounded-full border border-black/10"
+                                  style={{
+                                    backgroundColor:
+                                      c.hex || c.name.toLowerCase(),
+                                  }}
+                                />
+                              )}
                               {c.name}
                             </span>
                           ))}
@@ -610,96 +536,18 @@ export default function FabricLibrary() {
                         : '—'}
                     </td>
                     <td className="px-3 py-2 text-right">
-                      <div className="flex justify-end gap-1.5">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openStock(f);
-                          }}
-                        >
-                          {t('admin.fabricLibrary.addStock')}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openEdit(f);
-                          }}
-                        >
-                          {t('admin.fabricLibrary.edit')}
-                        </Button>
-                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openStock(f);
+                        }}
+                      >
+                        {t('admin.fabricLibrary.issue')}
+                      </Button>
                     </td>
                   </tr>
-                  {expanded.has(f.id) &&
-                    (f.colours ?? []).map((c) => {
-                      const uom = f.unitOfMeasure
-                        ? UOM_SHORT[f.unitOfMeasure]
-                        : '';
-                      const swatch = c.imagePath
-                        ? imageUrls[c.imagePath]
-                        : undefined;
-                      return (
-                        <tr
-                          key={`${f.id}-${c.id}`}
-                          className="border-t border-[var(--color-border)]/40 bg-[var(--color-surface-2)]/40"
-                        >
-                          <td colSpan={9} className="px-3 py-1.5">
-                            <div className="flex items-center gap-3 pl-9 text-xs">
-                              {swatch ? (
-                                <img
-                                  src={swatch}
-                                  alt={c.name}
-                                  className="h-6 w-6 shrink-0 rounded-[var(--radius-sm)] border border-[var(--color-border)] object-cover"
-                                  loading="lazy"
-                                />
-                              ) : (
-                                <span
-                                  className="h-4 w-4 shrink-0 rounded-full border border-black/10"
-                                  style={{
-                                    backgroundColor:
-                                      c.hex || c.name.toLowerCase(),
-                                  }}
-                                />
-                              )}
-                              <span className="font-medium text-[var(--color-foreground)]">
-                                {c.name}
-                              </span>
-                              {c.code && (
-                                <span className="text-[var(--color-muted-foreground)] tabular-nums">
-                                  {c.code}
-                                </span>
-                              )}
-                              <span className="ml-auto w-28 text-right tabular-nums">
-                                {c.pricePerUnit != null
-                                  ? `₹${c.pricePerUnit}${uom ? ` / ${uom}` : ''}`
-                                  : '—'}
-                              </span>
-                              <span className="w-24 text-right tabular-nums">
-                                {c.availableQuantity != null &&
-                                c.availableQuantity > 0
-                                  ? `${c.availableQuantity}${uom ? ` ${uom}` : ''}`
-                                  : t('admin.fabricLibrary.noStock')}
-                              </span>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openStock(f, c.id);
-                                }}
-                              >
-                                {t('admin.fabricLibrary.addStock')}
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </Fragment>
                 ))}
             </tbody>
           </table>
@@ -710,18 +558,13 @@ export default function FabricLibrary() {
         open={dialogOpen}
         onClose={() => setDialogOpen(false)}
         maxWidthClassName="max-w-3xl"
-        title={
-          editing
-            ? `${t('admin.fabricLibrary.editFabric')} — ${editing.name}`
-            : t('admin.fabricLibrary.newFabric')
-        }
+        title={t('admin.fabricLibrary.newFabric')}
       >
-        {/* Shared with the intake's FabricPicker — single source of
-            truth for the fabric form. Key resets state when the
-            dialog opens for a different row. */}
+        {/* Shared with the intake's FabricPicker — single source of truth for
+            the fabric form. Editing an existing fabric lives on its detail
+            page; this dialog only creates. */}
         <FabricEditorForm
-          key={editing?.id ?? 'new'}
-          editing={editing}
+          editing={null}
           onCancel={() => setDialogOpen(false)}
           onSaved={() => {
             setDialogOpen(false);
@@ -735,14 +578,11 @@ export default function FabricLibrary() {
         onClose={() => setStockFabric(null)}
         title={
           stockFabric
-            ? `${t('admin.fabricLibrary.addStock')} — ${stockFabric.name}`
-            : t('admin.fabricLibrary.addStock')
+            ? `${t('admin.fabricLibrary.issueFabric')} — ${stockFabric.name}`
+            : t('admin.fabricLibrary.issueFabric')
         }
       >
         <div className="space-y-3">
-          <p className="text-[11px] text-[var(--color-muted-foreground)]">
-            {t('admin.fabricLibrary.stockHelp')}
-          </p>
           <div>
             <Label>
               {t('admin.fabricLibrary.stock.quantity')}
@@ -822,7 +662,7 @@ export default function FabricLibrary() {
             >
               {stockSaving
                 ? t('common.saving', 'Saving…')
-                : t('admin.fabricLibrary.stock.record')}
+                : t('admin.fabricLibrary.issue')}
             </Button>
           </div>
         </div>
@@ -855,7 +695,7 @@ function SortHeader({
   return (
     <th
       className={cn(
-        'font-medium px-3 py-2',
+        'px-3 py-2',
         align === 'right' ? 'text-right' : 'text-left',
         className,
       )}
@@ -871,9 +711,11 @@ function SortHeader({
           type="button"
           onClick={onClick}
           className={cn(
-            'inline-flex items-center gap-1 transition-colors hover:text-[var(--color-foreground)]',
+            // `uppercase` is re-stated here because Tailwind's preflight sets
+            // `button { text-transform: none }`, so the thead's caps don't reach in.
+            'inline-flex items-center gap-1 uppercase transition-colors hover:text-[var(--color-foreground)]',
             align === 'right' && 'flex-row-reverse',
-            active && 'text-[var(--color-primary)] font-semibold',
+            active && 'text-[var(--color-primary)]',
           )}
         >
           <span>{label}</span>
@@ -890,35 +732,3 @@ function SortHeader({
   );
 }
 
-/** A plain (non-sortable) header cell that carries a column-filter funnel. */
-function FilterHeader({
-  label,
-  align = 'left',
-  className,
-  filter,
-}: {
-  label: string;
-  align?: 'left' | 'right';
-  className?: string;
-  filter: ReactNode;
-}) {
-  return (
-    <th
-      className={cn(
-        'font-medium px-3 py-2',
-        align === 'right' ? 'text-right' : 'text-left',
-        className,
-      )}
-    >
-      <span
-        className={cn(
-          'inline-flex items-center gap-1',
-          align === 'right' && 'flex-row-reverse',
-        )}
-      >
-        <span>{label}</span>
-        {filter}
-      </span>
-    </th>
-  );
-}

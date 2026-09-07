@@ -511,6 +511,11 @@ export async function listFabrics(): Promise<Fabric[]> {
   return res.data;
 }
 
+export async function getFabric(id: number): Promise<Fabric> {
+  const res = await apiClient.get<Fabric>(`/api/fabrics/${id}`);
+  return res.data;
+}
+
 /** Shape accepted by create/update — `compositions` percent may be number or string. */
 export interface FabricUpsertBody {
   name?: string;

@@ -70,6 +70,7 @@ const FabricLibrary = lazy(() => import('./pages/fabric-library/FabricLibrary'))
 const ReceiveFabricChallan = lazy(
   () => import('./pages/fabric-library/ReceiveFabricChallan'),
 );
+const FabricDetail = lazy(() => import('./pages/fabric-library/FabricDetail'));
 
 function PageSkeleton() {
   // Inline shimmer — calm, sits inside whatever shell already rendered
@@ -675,6 +676,14 @@ function App() {
                 element={
                   <S>
                     <ReceiveFabricChallan />
+                  </S>
+                }
+              />
+              <Route
+                path=":id"
+                element={
+                  <S>
+                    <FabricDetail />
                   </S>
                 }
               />

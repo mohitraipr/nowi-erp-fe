@@ -321,9 +321,20 @@ export interface FabricStockEntry {
   fabricColour?: { id: number; colour: { name: string; hex: string | null } } | null;
   /** Signed: positive for receipt, negative for consumption. */
   quantity: string;
+  /** Rate paid on this line — IN only; null on OUT and when not captured. */
+  pricePerUnit?: string | null;
   entryType: FabricStockEntryType;
   note: string | null;
   styleId: number | null;
+  /** Hydrated by the ledger read — the challan that moved this quantity. */
+  challan?: {
+    id: number;
+    direction: FabricChallanDirection;
+    challanNo: string;
+    challanDate: string;
+    supplier: string;
+    vendor?: { id: number; name: string } | null;
+  } | null;
   createdBy: number | null;
   createdAt: string;
   isTestData?: boolean;
@@ -351,9 +362,10 @@ export interface CreateFabricChallanInput {
   challanNo: string;
   /** ISO yyyy-mm-dd (the date printed on the paper challan). */
   challanDate: string;
-  /** Vendor id (structured source for an IN challan). */
+  /** Vendor id — the structured source; the server names the supplier from it. */
   vendorId?: number | null;
-  supplier: string;
+  /** Free text, only for a source with no vendor record. Omit to use the vendor. */
+  supplier?: string;
   transportMode?: string | null;
   placeOfSupply?: string | null;
   note?: string | null;
