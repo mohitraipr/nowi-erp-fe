@@ -13,6 +13,7 @@ import {
   correctStageQuantities,
   getLot,
   updateBatch,
+  type BatchSizeLine,
   type CorrectStageQtyItem,
   type BatchStatus,
   type LotDetail,
@@ -209,8 +210,45 @@ export default function ProductionLotDetail() {
     },
   );
 
-  const stageCell = (stage: LotTimelineEntry['stage'], qty: number) =>
-    recorded.has(stage) ? qty : '—';
+  // "—" belongs to lots that ran BEFORE the journey system, where every figure
+  // is a zero meaning "unknown". Once a lot has any stage history at all, a
+  // stage with no entries genuinely holds zero — and printing a dash for it made
+  // the table disagree with the edit dialog, which shows the same field as 0.
+  const preJourney = recorded.size === 0;
+  const stageCell = (_stage: LotTimelineEntry['stage'], qty: number) =>
+    preJourney ? '—' : qty;
+
+  /** Off the floor there is nothing "at" a stage — the lot is closed. */
+  const pastFloor = ['completed', 'dispatched'].includes(lot.status);
+
+  /**
+   * Pieces still sitting at a stage — the ones that reached it but have not moved
+   * on. The column's own figure is the remainder (what HAS moved on), so the two
+   * always sum to what the stage took in.
+   *
+   * Clamped: `finished` counts a piece twice if it goes round through
+   * alteration, so the subtraction can go negative after a rework cycle.
+   */
+  const pending = {
+    cutting: (r: BatchSizeLine) => Math.max(0, r.qtyCut - r.qtyStitched),
+    stitching: (r: BatchSizeLine) =>
+      Math.max(0, r.qtyStitched - r.qtyScrapped - r.qtyAltered - r.qtyFinished),
+    // Nothing leaves finishing but closing the lot: until then none are finished
+    // and every one of them is pending.
+    finishing: (r: BatchSizeLine) => (pastFloor ? 0 : r.qtyFinished),
+  };
+
+  /** How far the stage has got — moved on above, still here below. */
+  const cell = (stage: 'cutting' | 'stitching' | 'finishing', reached: number, still: number) => (
+    <>
+      <div>{stageCell(stage, reached - still)}</div>
+      {still > 0 && (
+        <div className="text-[11px] font-semibold text-emerald-700">
+          {t('admin.production.lot.pendingNow', { defaultValue: '{{n}} pending', n: still })}
+        </div>
+      )}
+    </>
+  );
 
   /** How much of the plan is finished. Caps at 100% — cumulative finishing can
    *  exceed the plan once pieces go round again through alteration. */
@@ -294,7 +332,9 @@ export default function ProductionLotDetail() {
                     {t('admin.production.lot.inAlteration', { defaultValue: 'In alteration' })}
                   </th>
                   <th className="py-2 pr-3 text-right font-semibold">
-                    {t('admin.production.lot.finished', { defaultValue: 'Finished' })}
+                    {pastFloor
+                      ? t('admin.production.lot.finished', { defaultValue: 'Finished' })
+                      : t('admin.production.lot.finishing', { defaultValue: 'Finishing' })}
                   </th>
                   <th className="py-2 pr-3 text-right font-semibold">
                     {t('admin.production.lot.dispatched', { defaultValue: 'Dispatched' })}
@@ -309,10 +349,12 @@ export default function ProductionLotDetail() {
                   <tr key={s.sku} className="border-b border-[var(--color-border)]/60">
                     <td className="py-2 pr-3 font-semibold">{s.size}</td>
                     <td className="py-2 pr-3 text-right">{s.qtyPlanned}</td>
-                    <td className="py-2 pr-3 text-right">{stageCell('cutting', s.qtyCut)}</td>
+                    <td className="py-2 pr-3 text-right">
+                      {cell('cutting', s.qtyCut, pending.cutting(s))}
+                    </td>
 
                     <td className="py-2 pr-3 text-right">
-                      {stageCell('stitching', s.qtyStitched)}
+                      {cell('stitching', s.qtyStitched, pending.stitching(s))}
                     </td>
                     <td className="py-2 pr-3 text-right text-[var(--color-muted-foreground)]">
                       {stageCell('alteration', s.qtyAltered)}
@@ -324,7 +366,7 @@ export default function ProductionLotDetail() {
                           : 'text-[var(--color-muted-foreground)]'
                       }`}
                     >
-                      {stageCell('finishing', s.qtyFinished)}
+                      {cell('finishing', s.qtyFinished, pending.finishing(s))}
                     </td>
                     <td className="py-2 pr-3 text-right text-[var(--color-muted-foreground)]">
                       {s.qtyDispatched}
@@ -339,9 +381,18 @@ export default function ProductionLotDetail() {
                     {t('admin.production.lot.total', { defaultValue: 'Total' })}
                   </td>
                   <td className="py-2 pr-3 text-right">{totals.planned}</td>
-                  <td className="py-2 pr-3 text-right">{stageCell('cutting', totals.cut)}</td>
                   <td className="py-2 pr-3 text-right">
-                    {stageCell('stitching', totals.stitched)}
+                    {cell('cutting', totals.cut, Math.max(0, totals.cut - totals.stitched))}
+                  </td>
+                  <td className="py-2 pr-3 text-right">
+                    {cell(
+                      'stitching',
+                      totals.stitched,
+                      Math.max(
+                        0,
+                        totals.stitched - totals.scrapped - totals.altered - totals.finished,
+                      ),
+                    )}
                   </td>
                   <td className="py-2 pr-3 text-right text-[var(--color-muted-foreground)]">
                     {stageCell('alteration', totals.altered)}
@@ -353,7 +404,7 @@ export default function ProductionLotDetail() {
                         : 'text-[var(--color-muted-foreground)]'
                     }`}
                   >
-                    {stageCell('finishing', totals.finished)}
+                    {cell('finishing', totals.finished, pastFloor ? 0 : totals.finished)}
                   </td>
                   <td className="py-2 pr-3 text-right text-[var(--color-muted-foreground)]">
                     {totals.dispatched}
