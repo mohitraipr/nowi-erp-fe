@@ -13,13 +13,26 @@ import {
 import { statusLabel } from '@/lib/production';
 
 /** The stages whose recorded totals can be corrected here. */
-const STAGES = ['cutting', 'stitching', 'finishing'] as const;
+const STAGES = ['cutting', 'stitching', 'finishing', 'alteration'] as const;
 type STAGE = (typeof STAGES)[number];
 
+/** i18n key per stage — the same keys the per-size table uses, so the two
+ *  headings can never drift apart. */
 const STAGE_LABEL: Record<STAGE, string> = {
   cutting: 'cut',
   stitching: 'stitched',
   finishing: 'finished',
+  // A balance, not a running total: how many are out right now.
+  alteration: 'inAlteration',
+};
+
+/** The words themselves, since these keys carry no locale entries. */
+const STAGE_TEXT: Record<string, string> = {
+  cut: 'Cut',
+  stitched: 'Stitched',
+  finished: 'Finished',
+  finishing: 'Finishing',
+  inAlteration: 'In alteration',
 };
 
 /** Until the lot is closed the pieces are IN finishing, not finished — the
@@ -66,7 +79,12 @@ export default function EditLotDialog({
       Object.fromEntries(
         lot.sizes.map((s) => [
           s.sku,
-          { cutting: s.qtyCut, stitching: s.qtyStitched, finishing: s.qtyFinished },
+          {
+            cutting: s.qtyCut,
+            stitching: s.qtyStitched,
+            finishing: s.qtyFinished,
+            alteration: s.qtyAltered,
+          },
         ]),
       ),
     );
@@ -82,7 +100,12 @@ export default function EditLotDialog({
   // rather than being "corrected" to the value it already holds.
   const corrections = (): CorrectStageQtyItem[] =>
     lot.sizes.flatMap((s) => {
-      const now = { cutting: s.qtyCut, stitching: s.qtyStitched, finishing: s.qtyFinished };
+      const now = {
+        cutting: s.qtyCut,
+        stitching: s.qtyStitched,
+        finishing: s.qtyFinished,
+        alteration: s.qtyAltered,
+      };
       const changed = STAGES.filter((k) => (stages[s.sku]?.[k] ?? now[k]) !== now[k]);
       return changed.length === 0
         ? []
@@ -157,7 +180,7 @@ export default function EditLotDialog({
               {STAGES.map((k) => (
                 <th key={k} className="py-2 pr-3 text-left font-semibold">
                   {t(`admin.production.lot.${stageHeading(k, pastFloor)}`, {
-                    defaultValue: stageHeading(k, pastFloor),
+                    defaultValue: STAGE_TEXT[stageHeading(k, pastFloor)],
                   })}
                 </th>
               ))}
@@ -197,7 +220,7 @@ export default function EditLotDialog({
                       onChange={(e) => setStage(s.sku, k, e.target.value)}
                       aria-label={t('admin.production.lot.stageQtyFor', {
                         defaultValue: '{{stage}} for size {{size}}',
-                        stage: STAGE_LABEL[k],
+                        stage: STAGE_TEXT[STAGE_LABEL[k]],
                         size: s.size,
                       })}
                     />

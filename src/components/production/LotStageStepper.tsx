@@ -19,6 +19,7 @@ export default function LotStageStepper({ lot }: { lot: ProductionBatch }) {
   const sum = (pick: (s: ProductionBatch['sizes'][number]) => number) =>
     lot.sizes.reduce((n, s) => n + pick(s), 0);
 
+  const planned = sum((s) => s.qtyPlanned);
   const cut = sum((s) => s.qtyCut);
   const stitched = sum((s) => s.qtyStitched);
   const finished = sum((s) => s.qtyFinished);
@@ -37,25 +38,23 @@ export default function LotStageStepper({ lot }: { lot: ProductionBatch }) {
   // Clamped at zero. `finished` is cumulative and counts a piece twice if it
   // goes round again through alteration, so after a rework cycle the raw
   // subtraction can go negative — and "-3 in stitching" reads as a fault.
-  // Each stage splits what reached it into two: pieces that have moved ON to the
-  // next stage, and pieces still sitting here. `value` is the first, `pending`
-  // the second, and they always sum to what the stage took in.
-  //
-  // So the headline number answers "how far has this stage got", not "how much
-  // has ever passed through" — 4 cut of 5 means one is still on the table.
+  // `value` is what the stage has RECORDED — the same number the edit dialog
+  // holds, so the two can never disagree. `pending` is the work still owed
+  // here, and it belongs to the stage that owes it: a stitched piece has
+  // ARRIVED at finishing, so it is pending there, not back at stitching.
   //
   // Clamped: `finished` is cumulative and counts a piece twice if it goes round
   // again through alteration, so the subtraction can go negative after rework.
-  const pendingCut = Math.max(0, cut - stitched);
-  const pendingStitch = Math.max(0, stitched - scrapped - altered - finished);
-  // Nothing leaves finishing except closing the lot: until then none are
-  // finished and all of them are pending.
-  const pendingFinish = pastFloor ? 0 : finished;
-
   const steps = [
-    { key: 'cutting', label: 'cut', value: cut - pendingCut, pending: pendingCut },
-    { key: 'stitching', label: 'stitched', value: stitched - pendingStitch, pending: pendingStitch },
-    { key: 'finishing', label: 'finished', value: finished - pendingFinish, pending: pendingFinish },
+    { key: 'cutting', label: 'cut', value: cut, pending: Math.max(0, planned - cut) },
+    { key: 'stitching', label: 'stitched', value: stitched, pending: Math.max(0, cut - stitched) },
+    {
+      key: 'finishing',
+      label: 'finished',
+      value: finished,
+      // Pieces at the tailor are pending nowhere — they are in alteration.
+      pending: Math.max(0, stitched - scrapped - altered - finished),
+    },
   ];
 
   return (

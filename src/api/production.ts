@@ -321,6 +321,9 @@ export interface CorrectStageQtyItem {
   cutting?: number;
   stitching?: number;
   finishing?: number;
+  /** Pieces OUT for alteration. A balance, not a running total — returns and
+   *  scraps have already netted themselves off it. */
+  alteration?: number;
 }
 
 /**

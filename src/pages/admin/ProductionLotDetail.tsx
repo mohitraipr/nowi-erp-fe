@@ -222,31 +222,30 @@ export default function ProductionLotDetail() {
   const pastFloor = ['completed', 'dispatched'].includes(lot.status);
 
   /**
-   * Pieces still sitting at a stage — the ones that reached it but have not moved
-   * on. The column's own figure is the remainder (what HAS moved on), so the two
-   * always sum to what the stage took in.
+   * Work OWED at a stage — pieces that have arrived there and not been done.
    *
-   * Clamped: `finished` counts a piece twice if it goes round through
-   * alteration, so the subtraction can go negative after a rework cycle.
+   * It belongs to the stage that owes the work, not the one the piece last
+   * left: a stitched piece has ARRIVED at finishing, so it is pending there.
+   * Pieces away at the tailor are pending nowhere — they are in alteration.
+   *
+   * Clamped: `finished` is cumulative and counts a piece twice if it goes round
+   * again, so the subtraction can go negative after a rework cycle.
    */
   const pending = {
-    cutting: (r: BatchSizeLine) => Math.max(0, r.qtyCut - r.qtyStitched),
-    stitching: (r: BatchSizeLine) =>
+    cutting: (r: BatchSizeLine) => Math.max(0, r.qtyPlanned - r.qtyCut),
+    stitching: (r: BatchSizeLine) => Math.max(0, r.qtyCut - r.qtyStitched),
+    finishing: (r: BatchSizeLine) =>
       Math.max(0, r.qtyStitched - r.qtyScrapped - r.qtyAltered - r.qtyFinished),
-    // Nothing leaves finishing but closing the lot: until then none are finished
-    // and every one of them is pending.
-    finishing: (r: BatchSizeLine) => (pastFloor ? 0 : r.qtyFinished),
   };
 
-  /** How far the stage has got — moved on above, still here below. */
-  const cell = (stage: 'cutting' | 'stitching' | 'finishing', reached: number, still: number) => (
+  /** The recorded figure — the same number the edit dialog holds — with the
+   *  work still owed at this stage beneath it. */
+  const cell = (stage: 'cutting' | 'stitching' | 'finishing', recordedQty: number, owed: number) => (
     <>
-      <div>{stageCell(stage, reached - still)}</div>
-      {/* Amber, not green: pending is work outstanding, and it reads as the same
-          kind of signal as the alteration chip. */}
-      {still > 0 && (
+      <div>{stageCell(stage, recordedQty)}</div>
+      {owed > 0 && (
         <div className="text-[11px] font-semibold text-amber-700">
-          {t('admin.production.lot.pendingNow', { defaultValue: '{{n}} pending', n: still })}
+          {t('admin.production.lot.pendingNow', { defaultValue: '{{n}} pending', n: owed })}
         </div>
       )}
     </>
@@ -363,7 +362,7 @@ export default function ProductionLotDetail() {
                     </td>
                     <td
                       className={`py-2 pr-3 text-right font-semibold ${
-                        s.qtyFinished - pending.finishing(s) > 0
+                        s.qtyFinished > 0
                           ? 'text-emerald-700'
                           : 'text-[var(--color-muted-foreground)]'
                       }`}
@@ -384,29 +383,29 @@ export default function ProductionLotDetail() {
                   </td>
                   <td className="py-2 pr-3 text-right">{totals.planned}</td>
                   <td className="py-2 pr-3 text-right">
-                    {cell('cutting', totals.cut, Math.max(0, totals.cut - totals.stitched))}
+                    {cell('cutting', totals.cut, Math.max(0, totals.planned - totals.cut))}
                   </td>
                   <td className="py-2 pr-3 text-right">
-                    {cell(
-                      'stitching',
-                      totals.stitched,
-                      Math.max(
-                        0,
-                        totals.stitched - totals.scrapped - totals.altered - totals.finished,
-                      ),
-                    )}
+                    {cell('stitching', totals.stitched, Math.max(0, totals.cut - totals.stitched))}
                   </td>
                   <td className="py-2 pr-3 text-right text-[var(--color-muted-foreground)]">
                     {stageCell('alteration', totals.altered)}
                   </td>
                   <td
                     className={`py-2 pr-3 text-right ${
-                      (pastFloor ? totals.finished : 0) > 0
+                      totals.finished > 0
                         ? 'text-emerald-700'
                         : 'text-[var(--color-muted-foreground)]'
                     }`}
                   >
-                    {cell('finishing', totals.finished, pastFloor ? 0 : totals.finished)}
+                    {cell(
+                      'finishing',
+                      totals.finished,
+                      Math.max(
+                        0,
+                        totals.stitched - totals.scrapped - totals.altered - totals.finished,
+                      ),
+                    )}
                   </td>
                   <td className="py-2 pr-3 text-right text-[var(--color-muted-foreground)]">
                     {totals.dispatched}
