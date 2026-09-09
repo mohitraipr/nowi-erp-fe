@@ -129,7 +129,10 @@ export default function EditLotDialog({
             {lot.name ?? lot.styleRef ?? lot.batchNo}
           </div>
           <div className="truncate font-mono text-[11px] font-normal text-[var(--color-muted-foreground)]">
-            {lot.batchNo}
+            {/* Lot number AND style reference: the title falls back through
+                name -> styleRef, so a named lot showed no style identifier at
+                all — and that is what you check you are editing the right one by. */}
+            {[lot.batchNo, lot.styleRef ?? lot.styleKey].filter(Boolean).join(' · ')}
           </div>
         </div>
       }
