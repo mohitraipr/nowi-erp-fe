@@ -12,7 +12,7 @@ export type Aging = 'active' | 'slow' | 'dead';
 
 /** Every list lens the server accepts: urgency tiers + aging + new arrivals.
  *  `out` = every size gone; `cut` = only some (a broken size ladder). */
-export type FilterKey = 'all' | 'out' | 'cut' | 'critical' | 'watch' | 'slow' | 'dead' | 'new';
+export type FilterKey = 'all' | 'out' | 'cut' | 'critical' | 'watch' | 'slow' | 'dead' | 'new' | 'pending';
 
 /** One size row (per SKU). */
 export interface InventorySize {
@@ -62,6 +62,9 @@ export interface InventoryStyle {
   lowVolume: boolean;
   /** Manually marked discontinued — still shown, but forced to the bottom. */
   discontinued: boolean;
+  /** Waiting on Myntra seller approval — unsellable, so hidden from every lens
+   *  but `pending`, where it can be brought back. */
+  pendingApproval: boolean;
   /** Linked ERP style went live within the last 7 days — drives the new-arrivals
    *  tab + badge. False when the style isn't linked to the ERP catalog. */
   isNew: boolean;
@@ -83,6 +86,8 @@ export interface InventoryKpis {
   dead: number;
   /** Recently-live styles (per-style). */
   newArrivals: number;
+  /** Styles held back for Myntra seller approval (per-style). */
+  pendingApproval: number;
   totalStyles: number;
   totalSkus: number;
 }
@@ -146,4 +151,9 @@ export function getInventoryHealth(params: InventoryHealthParams = {}): Promise<
 /** Mark / unmark a product (by styleKey) discontinued — sinks it to the bottom. */
 export function setStyleDiscontinued(styleKey: string, discontinued: boolean): Promise<void> {
   return apiClient.post('/api/inventory-health/discontinued', { styleKey, discontinued }).then(() => undefined);
+}
+
+/** Mark / unmark one product (by styleKey) as awaiting Myntra seller approval. */
+export function setStylePendingApproval(styleKey: string, pending: boolean): Promise<void> {
+  return apiClient.post('/api/inventory-health/pending-approval', { styleKey, pending }).then(() => undefined);
 }

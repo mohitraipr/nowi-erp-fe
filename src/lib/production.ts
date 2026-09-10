@@ -1,6 +1,6 @@
 import type { useTranslation } from 'react-i18next';
 import type { InventoryStyle } from '@/api/inventoryHealth';
-import type { BatchStatus } from '@/api/production';
+import type { BatchSizeLine, BatchStatus } from '@/api/production';
 
 type T = ReturnType<typeof useTranslation>['t'];
 
@@ -25,6 +25,47 @@ export function outstandingAlterationFor(s: { qtyAltered: number }): number {
 /** Whole-lot total of {@link outstandingAlterationFor}. */
 export function outstandingAlteration(b: { sizes: { qtyAltered: number }[] }): number {
   return b.sizes.reduce((n, s) => n + outstandingAlterationFor(s), 0);
+}
+
+/** The three stages a lot physically passes through on the floor. */
+export const FLOOR_STAGES = ['cutting', 'stitching', 'finishing'] as const;
+export type FloorStage = (typeof FLOOR_STAGES)[number];
+
+function isFloorStage(s: BatchStatus): s is FloorStage {
+  return (FLOOR_STAGES as readonly string[]).includes(s);
+}
+
+/**
+ * Work OWED at a stage on one size — pieces that have ARRIVED there and not been
+ * done yet.
+ *
+ * It belongs to the stage that owes the work, not the one the piece last left: a
+ * stitched piece has arrived at finishing, so it is pending THERE.
+ *
+ * Pieces out for alteration COUNT as pending: they are coming back and will still
+ * need finishing, so the lot is not done until they land. Only `qtyScrapped` is
+ * removed — written-off pieces never return, and leaving them in would hold a lot
+ * above zero forever.
+ *
+ * Clamped at zero: `qtyFinished` is cumulative and counts a piece twice if it
+ * goes round again, so the subtraction can go negative after a rework cycle.
+ */
+export const pendingAt: Record<FloorStage, (s: BatchSizeLine) => number> = {
+  cutting: (s) => Math.max(0, s.qtyPlanned - s.qtyCut),
+  stitching: (s) => Math.max(0, s.qtyCut - s.qtyStitched),
+  finishing: (s) => Math.max(0, s.qtyStitched - s.qtyScrapped - s.qtyFinished),
+};
+
+/** Whole-lot work owed at the stage the lot is in RIGHT NOW. Null off the floor
+ *  (planning / completed / dispatched / cancelled) — the lot is not at a stage,
+ *  so nothing is owed at one. Shared by the board and the lot page. */
+export function pendingAtCurrentStage(b: {
+  status: BatchStatus;
+  sizes: BatchSizeLine[];
+}): number | null {
+  if (!isFloorStage(b.status)) return null;
+  const owed = pendingAt[b.status];
+  return b.sizes.reduce((n, s) => n + owed(s), 0);
 }
 
 const FLOOR_STAGE_LABEL: Partial<Record<BatchStatus, string>> = {

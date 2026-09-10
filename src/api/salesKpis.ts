@@ -48,6 +48,9 @@ export interface SalesKpisResponse {
   lastSyncedAt?: string | null;
   /** True when the latest sync served STALE (cached) data — the live fetch failed. */
   stale?: boolean;
+  /** Earliest day (YYYY-MM-DD) that has Real/Virtual data. Older history is
+   *  whole-account only, so the As-of picker floors here in a scoped view. */
+  splitFrom?: string | null;
   /** True while a manual refresh is still generating reports in the background.
    *  The FE keeps showing "fetching…" and polls until this flips to false. */
   syncing?: boolean;
@@ -57,10 +60,21 @@ export interface SalesKpisResponse {
   syncingBuckets?: SalesBucket[];
 }
 
+/** Real / virtual inventory view, matching Inventory Health: `virtual` = SKUs
+ *  holding China-warehouse stock, `real` = the rest. RTO/RTV read whole-account
+ *  in every view — a returned parcel can hold both kinds, so it cannot be split. */
+export type SalesInventoryView = 'all' | 'real' | 'virtual';
+
 /** GET /api/sales-kpis — the bucketed dashboard metrics. */
-export function getSalesKpis(asOf?: string): Promise<SalesKpisResponse> {
+export function getSalesKpis(
+  asOf?: string,
+  inventory: SalesInventoryView = 'all',
+): Promise<SalesKpisResponse> {
+  const params: Record<string, string> = {};
+  if (asOf) params.asOf = asOf;
+  if (inventory !== 'all') params.inventory = inventory;
   return apiClient
-    .get<SalesKpisResponse>('/api/sales-kpis', { params: asOf ? { asOf } : undefined })
+    .get<SalesKpisResponse>('/api/sales-kpis', { params })
     .then((res) => res.data);
 }
 

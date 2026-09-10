@@ -29,6 +29,7 @@ import StartProductionIntakeDialog from '@/components/production/StartProduction
 import DispatchBuilderDialog from '@/components/production/DispatchBuilderDialog';
 import CancelBatchDialog from '@/components/production/CancelBatchDialog';
 import { createDispatch, type CreateDispatchBody } from '@/api/productionDispatch';
+import { getBrands, type Brand } from '@/api/brands';
 import {
   ADVANCEABLE_STATUSES,
   advanceBatch,
@@ -57,6 +58,7 @@ import {
   coverTone,
   meaningfulName,
   outstandingAlteration,
+  pendingAtCurrentStage,
   statusLabel,
 } from '@/lib/production';
 import { UrgencyPill } from '@/pages/admin/InventoryHealth';
@@ -203,6 +205,9 @@ export default function Production() {
   const [loadMoreError, setLoadMoreError] = useState(false);
   const [statusFilter, setStatusFilter] = useState<BatchStatus | ''>('');
   const [originFilter, setOriginFilter] = useState<BatchOrigin | ''>('');
+  // Brand: '' = all · 'own' = Nowi's own goods (no brand) · a brand id as a string.
+  const [brandFilter, setBrandFilter] = useState('');
+  const [brands, setBrands] = useState<Brand[]>([]);
   // Every tab change goes through here: each tab offers its own statuses, so a
   // carried-over one would filter with no chip lit to explain the empty list.
   const selectTab = (next: Tab) => {
@@ -240,6 +245,7 @@ export default function Production() {
     tab,
     statusFilter,
     originFilter,
+    brandFilter,
     search: debouncedSearch,
     from: dateFrom,
     to: dateTo,
@@ -248,6 +254,7 @@ export default function Production() {
     tab,
     statusFilter,
     originFilter,
+    brandFilter,
     search: debouncedSearch,
     from: dateFrom,
     to: dateTo,
@@ -269,6 +276,7 @@ export default function Production() {
       tab: f.tab === 'to_start' || f.tab === 'parked' ? undefined : f.tab,
       status: f.statusFilter || undefined,
       origin: f.originFilter || undefined,
+      brand: f.brandFilter || undefined,
       search: f.search || undefined,
       from: f.from,
       to: f.to,
@@ -304,6 +312,7 @@ export default function Production() {
         tab,
         status: statusFilter || undefined,
         origin: originFilter || undefined,
+        brand: brandFilter || undefined,
         search: debouncedSearch || undefined,
         from: dateFrom,
         to: dateTo,
@@ -318,7 +327,7 @@ export default function Production() {
         kpis: res.kpis,
       };
     },
-    [tab, debouncedSearch, statusFilter, originFilter, dateFrom, dateTo],
+    [tab, debouncedSearch, statusFilter, originFilter, brandFilter, dateFrom, dateTo],
   );
 
   const reqRef = useRef(0);
@@ -395,6 +404,11 @@ export default function Production() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Brand master for the filter — Nowi also produces for other labels.
+  useEffect(() => {
+    void getBrands().then(setBrands).catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     void loadKpis();
@@ -687,6 +701,24 @@ export default function Production() {
               <option value="style">
                 {t('admin.production.originStyle', { defaultValue: 'From style' })}
               </option>
+            </select>
+            <select
+              value={brandFilter}
+              onChange={(e) => setBrandFilter(e.target.value)}
+              className={`${RAIL_SELECT_CLASS} max-w-[11rem]`}
+              aria-label={t('admin.production.filterBrand', { defaultValue: 'Brand' })}
+            >
+              <option value="">
+                {t('admin.production.brandAll', { defaultValue: 'Brand: All' })}
+              </option>
+              <option value="own">
+                {t('admin.production.brandOwn', { defaultValue: 'Nowi (own)' })}
+              </option>
+              {brands.map((b) => (
+                <option key={b.id} value={String(b.id)}>
+                  {b.name}
+                </option>
+              ))}
             </select>
             <FilterRailDivider />
             {/* Start-date window — the same shared picker the dashboard and
@@ -1525,10 +1557,27 @@ function BatchTable({
 
     cols.push({
       key: 'planned',
-      width: '80px',
+      // Wider than a bare count: the pending line sits under it. Matches the
+      // Produced column beside it.
+      width: '96px',
       align: 'right',
       header: t('admin.production.planned', { defaultValue: 'Planned' }),
-      cell: (b) => <span className="font-semibold">{b.qtyPlanned}</span>,
+      // Planned, with the work still owed AT THE LOT'S CURRENT STAGE beneath it —
+      // the same figure the lot page shows per stage, from the same helper. Off
+      // the floor there is no stage, so nothing is shown.
+      cell: (b) => {
+        const owed = pendingAtCurrentStage(b);
+        return (
+          <>
+            <div className="font-semibold">{b.qtyPlanned}</div>
+            {owed != null && owed > 0 && (
+              <div className="text-[11px] font-semibold text-amber-700">
+                {t('admin.production.lot.pendingNow', { defaultValue: '{{n}} pending', n: owed })}
+              </div>
+            )}
+          </>
+        );
+      },
     });
 
     // Produced only, and only where it means something. The stage figure this
