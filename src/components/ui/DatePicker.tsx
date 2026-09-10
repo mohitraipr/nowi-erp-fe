@@ -348,7 +348,9 @@ export function DatePicker({
               <Button size="sm" variant="outline" onClick={close}>
                 {t('common.cancel', { defaultValue: 'Cancel' })}
               </Button>
-              <Button size="sm" onClick={apply} disabled={!draft}>
+              {/* An open popover keeps the draft it opened with, so a minDate that
+                  lands while it is open can leave the draft below the floor. */}
+              <Button size="sm" onClick={apply} disabled={!draft || outOfRange(draft)}>
                 {t('common.apply', { defaultValue: 'Apply' })}
               </Button>
             </div>
