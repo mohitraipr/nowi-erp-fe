@@ -387,13 +387,14 @@ export default function ProductionLotDetail() {
                         : 'text-[var(--color-muted-foreground)]'
                     }`}
                   >
+                    {/* Summed from the SAME per-size helper the rows above use, so
+                        the total can't drift from them — subtracting `altered` here
+                        made it disagree with its own rows and with the board, which
+                        both keep pieces out for alteration pending. */}
                     {cell(
                       'finishing',
                       totals.finished,
-                      Math.max(
-                        0,
-                        totals.stitched - totals.scrapped - totals.altered - totals.finished,
-                      ),
+                      lot.sizes.reduce((n, s) => n + pendingAt.finishing(s), 0),
                     )}
                   </td>
                   <td className="py-2 pr-3 text-right text-[var(--color-muted-foreground)]">
