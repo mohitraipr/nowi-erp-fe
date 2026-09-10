@@ -3,11 +3,13 @@ import { useTranslation } from 'react-i18next';
 import { RefreshCw, Info } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { DatePicker } from '@/components/ui/DatePicker';
+import { FilterRail, FilterRailDivider, FilterRailSegments } from '@/components/ui/filter-rail';
 import { useToast } from '@/components/ui/toast';
 import { localISO, todayISO } from '@/lib/date';
 import { CARD_SHELL, DISPLAY, SANS, Sparkline } from '@/components/admin/kpiPrimitives';
 import {
   getSalesKpis,
+  type SalesInventoryView,
   refreshAllEasyEcom,
   type SalesBucket,
   type SalesFormat,
@@ -114,6 +116,8 @@ export default function SalesKpis({
   // undefined = default (BE anchors on today IST); a date = explicit pick.
   const [sendAsOf, setSendAsOf] = useState<string | undefined>(undefined);
   const [displayAsOf, setDisplayAsOf] = useState(today);
+  // Real / virtual inventory view — the same split Inventory Health shows.
+  const [inventory, setInventory] = useState<SalesInventoryView>('all');
   const [tick, setTick] = useState(0);
   // Guards the passive sync-watcher (below) against starting twice, and against
   // colliding with the button's own poll loop in onRefresh.
@@ -133,28 +137,35 @@ export default function SalesKpis({
   };
   const mySyncing = pageSyncing(data);
 
+  // Which query the screen is currently showing. The load effect bumps it on every
+  // as-of / view change; a Refresh compares against it before writing, so a poll
+  // that started minutes ago under the previous view can't paint over the new one
+  // (the epoch guard Production.tsx uses for the same hazard).
+  const queryRef = useRef(0);
+
   useEffect(() => {
+    const my = ++queryRef.current;
     let cancelled = false;
     setLoading(true);
     setFailed(false);
-    getSalesKpis(sendAsOf)
+    getSalesKpis(sendAsOf, inventory)
       .then((d) => {
-        if (cancelled) return;
+        if (cancelled || queryRef.current !== my) return;
         setData(d);
         setDisplayAsOf(d.asOf);
       })
       .catch(() => {
-        if (cancelled) return;
+        if (cancelled || queryRef.current !== my) return;
         setData(null);
         setFailed(true);
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && queryRef.current === my) setLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [sendAsOf, tick]);
+  }, [sendAsOf, inventory, tick]);
 
   // Passive sync watcher: if a load (or a prior poll) reports a sync still in
   // flight — e.g. the page was reloaded mid-refresh, or the hourly cron is
@@ -174,7 +185,7 @@ export default function SalesKpis({
       while (!cancelled && pageSyncing(d) && Date.now() - startAt < REFRESH_MAX_WAIT_MS) {
         await new Promise((r) => setTimeout(r, REFRESH_POLL_MS));
         try {
-          d = await getSalesKpis(sendAsOf);
+          d = await getSalesKpis(sendAsOf, inventory);
         } catch {
           continue;
         }
@@ -182,14 +193,30 @@ export default function SalesKpis({
       if (!cancelled) {
         setData(d);
         setRefreshing(false);
+        syncWatchRef.current = false;
+      } else if (!syncWatchRef.current) {
+        // Cancelled (the view or date changed) and no replacement watcher took
+        // over — clear the spinner ourselves, or the "fetching…" banner stays up
+        // for good when the background sync happens to finish in that gap. The
+        // ref is NOT reset here: if a replacement DID start it owns the flag now.
+        setRefreshing(false);
       }
-      syncWatchRef.current = false;
     })();
     return () => {
       cancelled = true;
       syncWatchRef.current = false;
     };
-  }, [mySyncing, sendAsOf]);
+  }, [mySyncing, sendAsOf, inventory]);
+
+  // Switching into a scoped view while an older date is picked would land outside
+  // the split's reach. Pull the date forward to the first day that HAS a split,
+  // so the view change never leaves the page reading N/A.
+  useEffect(() => {
+    const floor = data?.splitFrom;
+    if (inventory === 'all' || !floor || displayAsOf >= floor) return;
+    setSendAsOf(floor);
+    setDisplayAsOf(floor);
+  }, [inventory, data?.splitFrom, displayAsOf]);
 
   const onRefresh = async (): Promise<void> => {
     if (refreshing) {
@@ -202,6 +229,10 @@ export default function SalesKpis({
       return;
     }
     setRefreshing(true);
+    // The query this refresh belongs to. Switch view or date mid-poll and it goes
+    // stale — we stop polling and drop the result rather than overwrite the screen.
+    const my = queryRef.current;
+    const current = (): boolean => queryRef.current === my;
     // ONE pull refreshes EVERY EasyEcom read model (Sales KPI + Inventory Health),
     // stamped with a single shared timestamp so every screen's "as of" matches.
     // The POST returns fast; poll GET until `syncing` clears, keeping the current
@@ -209,12 +240,12 @@ export default function SalesKpis({
     // in-progress state; one toast on the result.
     try {
       await refreshAllEasyEcom();
-      let d = await getSalesKpis(sendAsOf);
+      let d = await getSalesKpis(sendAsOf, inventory);
       const startAt = Date.now();
-      while (pageSyncing(d) && Date.now() - startAt < REFRESH_MAX_WAIT_MS) {
+      while (current() && pageSyncing(d) && Date.now() - startAt < REFRESH_MAX_WAIT_MS) {
         await new Promise((r) => setTimeout(r, REFRESH_POLL_MS));
         try {
-          d = await getSalesKpis(sendAsOf);
+          d = await getSalesKpis(sendAsOf, inventory);
         } catch {
           // A transient blip while POLLING isn't a refresh failure — the
           // background sync is still running and the current data is still
@@ -223,6 +254,9 @@ export default function SalesKpis({
           continue;
         }
       }
+      // Abandoned: the view or date moved on. The sync itself keeps running server
+      // side, and the new query's own load will pick its results up.
+      if (!current()) return;
       if (pageSyncing(d)) {
         // Still running server-side after our wait — the sync continues and the
         // next page load / hourly cron will surface it. Don't claim success.
@@ -292,26 +326,18 @@ export default function SalesKpis({
   return (
     <div style={{ minHeight: '100%', background: '#f6f7f9', fontFamily: SANS }} className="p-4 sm:p-6 lg:p-8">
       <div className="mx-auto max-w-6xl">
-        {/* Header */}
-        <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h1 style={{ fontFamily: DISPLAY }} className="text-2xl font-semibold text-neutral-900">
-              {t(titleKey, { defaultValue: titleDefault })}
-            </h1>
-            <p className="mt-0.5 text-sm text-neutral-500">
-              {t(subtitleKey, { defaultValue: subtitleDefault })}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <DatePicker
-              value={displayAsOf}
-              onChange={(d) => {
-                setSendAsOf(d);
-                setDisplayAsOf(d);
-              }}
-              maxDate={today}
-              label={t('admin.salesKpis.asOf', { defaultValue: 'As of' })}
-            />
+        {/* Header — the two tiers Inventory Health uses: title + Refresh above,
+            the filter rail beneath, so both EasyEcom pages read the same way. */}
+        <div className="mb-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h1 style={{ fontFamily: DISPLAY }} className="text-2xl font-semibold text-neutral-900">
+                {t(titleKey, { defaultValue: titleDefault })}
+              </h1>
+              <p className="mt-0.5 text-sm text-neutral-500">
+                {t(subtitleKey, { defaultValue: subtitleDefault })}
+              </p>
+            </div>
             <button
               type="button"
               onClick={onRefresh}
@@ -324,6 +350,37 @@ export default function SalesKpis({
                 : t('admin.salesKpis.refresh', { defaultValue: 'Refresh' })}
             </button>
           </div>
+
+          {/* Same rail, same control, same labels as Inventory Health — the keys
+              are ITS keys on purpose, so the two pages can never word the same
+              filter differently. */}
+          <FilterRail className="mt-4">
+            <FilterRailSegments
+              value={inventory}
+              onChange={setInventory}
+              ariaLabel={t('admin.salesKpis.inv.group', { defaultValue: 'Stock type' })}
+              options={(['all', 'real', 'virtual'] as const).map((v) => ({
+                value: v,
+                label: t(`admin.inventoryHealth.inv.${v}`, {
+                  defaultValue: v === 'all' ? 'All stock' : v === 'real' ? 'Real' : 'Virtual',
+                }),
+              }))}
+            />
+            <FilterRailDivider />
+            <DatePicker
+              value={displayAsOf}
+              onChange={(d) => {
+                setSendAsOf(d);
+                setDisplayAsOf(d);
+              }}
+              maxDate={today}
+              // Sales history predates the Real/Virtual split and is whole-account
+              // only, so a scoped view can't answer for those days — bar the picker
+              // there rather than show a page of N/A under a false stale banner.
+              minDate={inventory === 'all' ? undefined : (data?.splitFrom ?? undefined)}
+              label={t('admin.salesKpis.asOf', { defaultValue: 'As of' })}
+            />
+          </FilterRail>
         </div>
 
         {/* Status line */}

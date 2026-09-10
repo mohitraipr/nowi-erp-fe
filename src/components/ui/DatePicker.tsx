@@ -87,6 +87,8 @@ interface Props {
   onChange: (date: string) => void;
   /** Upper bound for selectable days (LOCAL `YYYY-MM-DD`). Defaults to today. */
   maxDate?: string;
+  /** Lower bound for selectable days (LOCAL `YYYY-MM-DD`). Omit for no floor. */
+  minDate?: string;
   /** Optional muted prefix shown before the date on the trigger (e.g. "As of")
    *  so it reads as a labelled FILTER, not a bare date. */
   label?: string;
@@ -97,6 +99,7 @@ export function DatePicker({
   value,
   onChange,
   maxDate,
+  minDate,
   label,
   className,
 }: Props) {
@@ -114,6 +117,13 @@ export function DatePicker({
   const maxDay = useMemo(
     () => (maxDate ? fromLocalISO(maxDate) : localToday()),
     [maxDate],
+  );
+  const minDay = useMemo(() => (minDate ? fromLocalISO(minDate) : null), [minDate]);
+  /** Out-of-range test shared by the calendar and the preset list, so a preset
+   *  can't commit a day the calendar greys out. */
+  const outOfRange = useCallback(
+    (d: Date): boolean => d > maxDay || (minDay ? d < minDay : false),
+    [maxDay, minDay],
   );
 
   const committed = useMemo(() => fromLocalISO(value), [value]);
@@ -269,9 +279,10 @@ export function DatePicker({
                     <button
                       key={p.key}
                       type="button"
+                      disabled={outOfRange(p.date)}
                       onClick={() => applyPreset(p)}
                       className={cn(
-                        'rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left text-[13px] transition-colors',
+                        'rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left text-[13px] transition-colors disabled:pointer-events-none disabled:opacity-40',
                         active
                           ? 'bg-[var(--color-primary-soft)] font-medium text-[var(--color-primary)]'
                           : 'text-[var(--color-foreground-2)] hover:bg-[var(--color-muted)]',
@@ -293,7 +304,7 @@ export function DatePicker({
                     if (d) setDraft(d);
                   }}
                   defaultMonth={defaultMonth}
-                  disabled={{ after: maxDay }}
+                  disabled={minDay ? [{ after: maxDay }, { before: minDay }] : { after: maxDay }}
                   classNames={{
                     // `relative` so the absolutely-positioned nav arrows below
                     // scope to the calendar area — not the whole popover.
