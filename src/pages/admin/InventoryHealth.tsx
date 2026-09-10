@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { RefreshCw, Search, ArrowUp, ArrowDown, ArrowUpDown, ArrowUpRight, Minus, Ban, RotateCcw, X, Sparkles, Copy, Check, Factory } from 'lucide-react';
+import { RefreshCw, Search, ArrowUp, ArrowDown, ArrowUpDown, ArrowUpRight, Minus, Ban, RotateCcw, X, Sparkles, Copy, Check, Factory, Clock, CheckCircle2 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -28,6 +28,7 @@ import { QueueTabs, type QueueTab } from '@/components/styles/StyleQueueTable';
 import {
   getInventoryHealth,
   setStyleDiscontinued,
+  setStylePendingApproval,
   type Aging,
   type FilterKey,
   type InventoryHealthResponse,
@@ -193,6 +194,8 @@ export default function InventoryHealth(): ReactNode {
   const canProduce = hasAnyRole(user, PRODUCTION_WRITE_ROLES);
   // Pending disable/enable confirmation (per style).
   const [confirmDisc, setConfirmDisc] = useState<{ styleKey: string; next: boolean } | null>(null);
+  // Seller-approval hold confirmation (per style).
+  const [confirmHold, setConfirmHold] = useState<{ styleKey: string; next: boolean } | null>(null);
   // Style queued for the "add to pipeline" dialog (quantities are editable there).
   const [produceTarget, setProduceTarget] = useState<StartProductionTarget | null>(null);
   const [produceBusy, setProduceBusy] = useState(false);
@@ -487,6 +490,28 @@ export default function InventoryHealth(): ReactNode {
     }
   };
 
+  // Confirm → hold the style for seller approval (or release it), then reload.
+  const onConfirmHold = async (): Promise<void> => {
+    if (!confirmHold) return;
+    const { styleKey, next } = confirmHold;
+    setConfirmHold(null);
+    try {
+      await setStylePendingApproval(styleKey, next);
+      toast.show(
+        next
+          ? t('admin.inventoryHealth.holdDone', { defaultValue: 'Moved to pending approval.' })
+          : t('admin.inventoryHealth.releaseDone', { defaultValue: 'Back on the list.' }),
+        'success',
+      );
+      setReloadTick((n) => n + 1);
+    } catch {
+      toast.show(
+        t('admin.inventoryHealth.holdFailed', { defaultValue: 'Couldn’t update. Please try again.' }),
+        'error',
+      );
+    }
+  };
+
   // Add to pipeline → the shared start-production dialog, seeded from the
   // forecast. Quantities stay editable there: a new arrival has no sales history,
   // so every suggested qty is 0 and a one-click send would have nothing to send.
@@ -540,6 +565,9 @@ export default function InventoryHealth(): ReactNode {
         { key: 'watch', label: t('admin.inventoryHealth.tab.watch', { defaultValue: 'Watch' }), count: kpis.watch },
         { key: 'slow', label: t('admin.inventoryHealth.tab.slow', { defaultValue: 'Slow-movers' }), count: kpis.slow },
         { key: 'dead', label: t('admin.inventoryHealth.tab.dead', { defaultValue: 'Dead stock' }), count: kpis.dead },
+        // Held for seller approval — unsellable, so off every other lens. This is
+        // the only way back to them.
+        { key: 'pending', label: t('admin.inventoryHealth.tab.pending', { defaultValue: 'Pending approval' }), count: kpis.pendingApproval },
         // "What's new" is a sort preset (it reorders whichever lens is in focus),
         // not a lens of its own — no tab.
       ]
@@ -798,6 +826,7 @@ export default function InventoryHealth(): ReactNode {
                         canManage={canManage}
                         canProduce={canProduce}
                         onRequestDiscontinue={(styleKey, next) => setConfirmDisc({ styleKey, next })}
+                        onRequestHold={(styleKey, next) => setConfirmHold({ styleKey, next })}
                         onProduce={() => openProduce(style, img)}
                         t={t}
                       />
@@ -879,6 +908,35 @@ export default function InventoryHealth(): ReactNode {
         onCancel={() => setConfirmDisc(null)}
       />
 
+      <ConfirmDialog
+        open={confirmHold != null}
+        title={
+          confirmHold?.next
+            ? t('admin.inventoryHealth.holdTitle', { defaultValue: 'Hold for seller approval?' })
+            : t('admin.inventoryHealth.releaseTitle', { defaultValue: 'Mark approved?' })
+        }
+        message={
+          confirmHold?.next
+            ? t('admin.inventoryHealth.holdMsg', {
+                defaultValue:
+                  '“{{style}}” leaves the forecast and the production queue until it is approved. You’ll find it under Pending approval.',
+                style: confirmHold?.styleKey ?? '',
+              })
+            : t('admin.inventoryHealth.releaseMsg', {
+                defaultValue: '“{{style}}” goes back on the list and can be produced again.',
+                style: confirmHold?.styleKey ?? '',
+              })
+        }
+        confirmLabel={
+          confirmHold?.next
+            ? t('admin.inventoryHealth.holdConfirm', { defaultValue: 'Hold' })
+            : t('admin.inventoryHealth.releaseConfirm', { defaultValue: 'Mark approved' })
+        }
+        cancelLabel={t('common.cancel', { defaultValue: 'Cancel' })}
+        onConfirm={() => void onConfirmHold()}
+        onCancel={() => setConfirmHold(null)}
+      />
+
       {/* Add to pipeline — the same dialog the dashboard starts production from. */}
       <StartProductionDialog
         open={produceTarget != null}
@@ -925,6 +983,7 @@ function StyleGroup({
   canManage,
   canProduce,
   onRequestDiscontinue,
+  onRequestHold,
   onProduce,
   t,
 }: {
@@ -935,6 +994,7 @@ function StyleGroup({
   canManage: boolean;
   canProduce: boolean;
   onRequestDiscontinue: (styleKey: string, next: boolean) => void;
+  onRequestHold: (styleKey: string, next: boolean) => void;
   onProduce: () => void;
   t: ReturnType<typeof useTranslation>['t'];
 }): ReactNode {
@@ -983,6 +1043,12 @@ function StyleGroup({
                 {t('admin.inventoryHealth.discontinuedBadge', { defaultValue: 'disabled' })}
               </span>
             )}
+            {style.pendingApproval && (
+              <span className="inline-flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+                <Clock size={10} />
+                {t('admin.inventoryHealth.pendingBadge', { defaultValue: 'pending approval' })}
+              </span>
+            )}
             {style.lowVolume && (
               <span className="inline-flex items-center rounded border border-neutral-200 px-1.5 py-0.5 text-[10px] font-semibold text-neutral-400">
                 {t('admin.inventoryHealth.lowVolume', { defaultValue: 'low volume' })}
@@ -1006,7 +1072,7 @@ function StyleGroup({
             </div>
           )}
         </div>
-        {canProduce && !style.discontinued && (
+        {canProduce && !style.discontinued && !style.pendingApproval && (
           <button
             type="button"
             onClick={onProduce}
@@ -1014,6 +1080,29 @@ function StyleGroup({
           >
             <Factory size={13} />
             {t('admin.inventoryHealth.addToPipeline', { defaultValue: 'Add to pipeline' })}
+          </button>
+        )}
+        {canManage && (
+          <button
+            type="button"
+            onClick={() => onRequestHold(style.styleKey, !style.pendingApproval)}
+            className={`inline-flex shrink-0 items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-semibold transition ${
+              style.pendingApproval
+                ? 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'
+                : 'border-amber-200 text-amber-700 hover:bg-amber-50'
+            }`}
+          >
+            {style.pendingApproval ? (
+              <>
+                <CheckCircle2 size={13} />
+                {t('admin.inventoryHealth.release', { defaultValue: 'Approved' })}
+              </>
+            ) : (
+              <>
+                <Clock size={13} />
+                {t('admin.inventoryHealth.hold', { defaultValue: 'Hold for approval' })}
+              </>
+            )}
           </button>
         )}
         {canManage && (

@@ -394,7 +394,8 @@
         "watch": "Watch",
         "slow": "Slow-movers",
         "dead": "Dead stock",
-        "new": "New arrivals"
+        "new": "New arrivals",
+        "pending": "Pending approval"
       },
       "newBadge": "New arrival",
       "col": {
@@ -436,7 +437,19 @@
       "pipelineDone": "Added to pipeline.",
       "pipelineFailed": "Couldn’t add to pipeline. Please try again.",
       "loadError": "Couldn’t load inventory health.",
-      "copySku": "Copy SKU"
+      "copySku": "Copy SKU",
+      "pendingBadge": "pending approval",
+      "hold": "Hold for approval",
+      "release": "Approved",
+      "holdTitle": "Hold for seller approval?",
+      "releaseTitle": "Mark approved?",
+      "holdMsg": "“{{style}}” leaves the forecast and the production queue until it is approved. You’ll find it under Pending approval.",
+      "releaseMsg": "“{{style}}” goes back on the list and can be produced again.",
+      "holdConfirm": "Hold",
+      "releaseConfirm": "Mark approved",
+      "holdDone": "Moved to pending approval.",
+      "releaseDone": "Back on the list.",
+      "holdFailed": "Couldn’t update. Please try again."
     },
     "home": {
       "approvalCta": {
