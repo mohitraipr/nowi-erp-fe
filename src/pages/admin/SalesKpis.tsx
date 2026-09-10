@@ -206,7 +206,10 @@ export default function SalesKpis({
       cancelled = true;
       syncWatchRef.current = false;
     };
-  }, [mySyncing, sendAsOf, inventory]);
+    // `tick` is a dep so a reload can RE-ARM the watcher after it times out:
+    // `mySyncing` stays true across that timeout, so without a dep that actually
+    // changes the effect would never run again and the poll would stay dead.
+  }, [mySyncing, sendAsOf, inventory, tick]);
 
   // Switching into a scoped view while an older date is picked would land outside
   // the split's reach. Pull the date forward to the first day that HAS a split,
