@@ -155,6 +155,8 @@ export interface ListBatchesParams {
   tab?: ProductionTab;
   status?: BatchStatus;
   origin?: BatchOrigin;
+  /** `own` = Nowi's own batches (no brand) · a brand id as a string = that label. */
+  brand?: string;
   search?: string;
   /** Inclusive `startedAt` window, local `YYYY-MM-DD` (interpreted IST server-side). */
   from?: string;
@@ -168,6 +170,7 @@ export function getBatches(params: ListBatchesParams = {}): Promise<ListBatchesR
   if (params.tab) q.tab = params.tab;
   if (params.status) q.status = params.status;
   if (params.origin) q.origin = params.origin;
+  if (params.brand) q.brand = params.brand;
   if (params.search) q.search = params.search;
   if (params.from) q.from = params.from;
   if (params.to) q.to = params.to;

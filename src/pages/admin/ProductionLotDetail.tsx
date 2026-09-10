@@ -13,13 +13,12 @@ import {
   correctStageQuantities,
   getLot,
   updateBatch,
-  type BatchSizeLine,
   type CorrectStageQtyItem,
   type BatchStatus,
   type LotDetail,
   type LotTimelineEntry,
 } from '@/api/production';
-import { statusLabel } from '@/lib/production';
+import { pendingAt, statusLabel } from '@/lib/production';
 import { hasAnyRole, PRODUCTION_WRITE_ROLES } from '@/lib/userRoles';
 import { useAuth } from '@/context/auth';
 
@@ -221,23 +220,6 @@ export default function ProductionLotDetail() {
   /** Off the floor there is nothing "at" a stage — the lot is closed. */
   const pastFloor = ['completed', 'dispatched'].includes(lot.status);
 
-  /**
-   * Work OWED at a stage — pieces that have arrived there and not been done.
-   *
-   * It belongs to the stage that owes the work, not the one the piece last
-   * left: a stitched piece has ARRIVED at finishing, so it is pending there.
-   * Pieces away at the tailor are pending nowhere — they are in alteration.
-   *
-   * Clamped: `finished` is cumulative and counts a piece twice if it goes round
-   * again, so the subtraction can go negative after a rework cycle.
-   */
-  const pending = {
-    cutting: (r: BatchSizeLine) => Math.max(0, r.qtyPlanned - r.qtyCut),
-    stitching: (r: BatchSizeLine) => Math.max(0, r.qtyCut - r.qtyStitched),
-    finishing: (r: BatchSizeLine) =>
-      Math.max(0, r.qtyStitched - r.qtyScrapped - r.qtyAltered - r.qtyFinished),
-  };
-
   /** The recorded figure — the same number the edit dialog holds — with the
    *  work still owed at this stage beneath it. */
   const cell = (stage: 'cutting' | 'stitching' | 'finishing', recordedQty: number, owed: number) => (
@@ -358,11 +340,11 @@ export default function ProductionLotDetail() {
                     <td className="py-2 pr-3 font-semibold">{s.size}</td>
                     <td className="py-2 pr-3 text-right">{s.qtyPlanned}</td>
                     <td className="py-2 pr-3 text-right">
-                      {cell('cutting', s.qtyCut, pending.cutting(s))}
+                      {cell('cutting', s.qtyCut, pendingAt.cutting(s))}
                     </td>
 
                     <td className="py-2 pr-3 text-right">
-                      {cell('stitching', s.qtyStitched, pending.stitching(s))}
+                      {cell('stitching', s.qtyStitched, pendingAt.stitching(s))}
                     </td>
                     <td className="py-2 pr-3 text-right text-[var(--color-muted-foreground)]">
                       {stageCell('alteration', s.qtyAltered)}
@@ -374,7 +356,7 @@ export default function ProductionLotDetail() {
                           : 'text-[var(--color-muted-foreground)]'
                       }`}
                     >
-                      {cell('finishing', s.qtyFinished, pending.finishing(s))}
+                      {cell('finishing', s.qtyFinished, pendingAt.finishing(s))}
                     </td>
                     <td className="py-2 pr-3 text-right text-[var(--color-muted-foreground)]">
                       {s.qtyDispatched}
